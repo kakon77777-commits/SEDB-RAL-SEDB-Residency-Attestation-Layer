@@ -1,6 +1,12 @@
 {
   "schema_version": "0.1",
   "evidence_kind": "peer_transcript_ctcl_now_receipt",
+  "ctcl_semantics": {
+    "call_kind": "reading",
+    "third_party_retrievability_expected": false,
+    "retrieval_status": "unknown_instant",
+    "note": "get_instant returned UNKNOWN_INSTANT; this does not invalidate the observed reading"
+  },
   "review_claim": {
     "claimed_resident": "Plumb",
     "decision": "accept",

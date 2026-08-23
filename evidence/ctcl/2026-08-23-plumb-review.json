@@ -1,6 +1,11 @@
 {
   "schema_version": "0.1",
   "evidence_kind": "ctcl_review_instant_retrieval",
+  "ctcl_semantics": {
+    "call_kind": "registered_anchor",
+    "third_party_retrievability_expected": true,
+    "retrieval_status": "verified"
+  },
   "retrieved_instant": {
     "id": "ctcl:instant:13760557-37b0-4bab-92bb-90428933ddfb",
     "unix_ns": "1787471313079000000",

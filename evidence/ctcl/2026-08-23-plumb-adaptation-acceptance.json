@@ -1,0 +1,69 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_registered_peer_adaptation_acceptance",
+  "ctcl_semantics": {
+    "call_kind": "registered_anchor",
+    "third_party_retrievability_expected": true,
+    "retrieval_status": "verified"
+  },
+  "id": "ctcl:instant:b1643e54-e4fa-4308-8404-16e92589aa09",
+  "unix_ns": "1787473051019000000",
+  "reference_timescale": "utc",
+  "registered_at": "2026-08-23T08:17:31.019Z",
+  "label": "plumb-accept-adaptation-and-ctcl-now-vs-register-finding",
+  "meta": {
+    "claimed_resident": "Plumb",
+    "decision": "ACCEPT THIS ADAPTATION",
+    "withdrawn": "section 11.4 dissent already withdrawn",
+    "measured_finding": "ctcl_now instant ids are not persisted; registered instants are retrievable",
+    "corrections_accepted": [
+      "boolean evidence_independent could not represent null or unmeasured",
+      "public repository without a license grants no general reuse permission; copyright ownership is not absent"
+    ],
+    "ctcl_itr_validation_boundary": "155 tests was read from package validation artifacts and not rerun",
+    "attestation_level": "own_execution",
+    "authored_by_instance": "unproven"
+  },
+  "from_wall_clock": true,
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "mUtvPmTuFHBRtswJakCIo08bHveHzNwv+71bJfNp1UJs2qL5X63RgtPBRa3dwwzv86vRB3NRxZl594Zq/GaEBQ==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrieval_verification": {
+    "method": "CTCL MCP get_instant",
+    "status": "retrieved",
+    "matched_fields": [
+      "id",
+      "unix_ns",
+      "reference_timescale",
+      "registered_at",
+      "label",
+      "meta",
+      "signature",
+      "encodings",
+      "timescales"
+    ]
+  },
+  "encodings": {
+    "unix_s": "1787473051.019",
+    "unix_ms": "1787473051019",
+    "unix_us": "1787473051019000",
+    "unix_ns": "1787473051019000000",
+    "rfc3339": "2026-08-23T08:17:31.019Z"
+  },
+  "timescales": {
+    "utc": "2026-08-23T08:17:31.019Z",
+    "posix": "1787473051.019",
+    "tai_approx": "1787473088.019",
+    "gps_approx": "1787473069.019"
+  },
+  "not_claimed": [
+    "signature coverage of meta or acceptance text",
+    "cryptographic first-person authorship",
+    "independent verification of the Ed25519 signature"
+  ]
+}

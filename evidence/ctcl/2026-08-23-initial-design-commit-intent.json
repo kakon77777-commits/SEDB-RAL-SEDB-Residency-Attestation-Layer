@@ -1,6 +1,11 @@
 {
   "schema_version": "0.1",
   "evidence_kind": "ctcl_registered_commit_intent",
+  "ctcl_semantics": {
+    "call_kind": "registered_anchor",
+    "third_party_retrievability_expected": true,
+    "retrieval_status": "verified"
+  },
   "id": "ctcl:instant:5a76bd1b-2db2-463b-b2ad-0b1307102710",
   "unix_ns": "1787472579165000000",
   "reference_timescale": "utc",

@@ -1,6 +1,12 @@
 {
   "schema_version": "0.1",
   "evidence_kind": "ctcl_project_inception_observation",
+  "ctcl_semantics": {
+    "call_kind": "reading",
+    "third_party_retrievability_expected": false,
+    "retrieval_status": "not_applicable",
+    "note": "ctcl_now readings are not persisted anchors"
+  },
   "project": {
     "name": "SEDB-RAL",
     "remote": "https://github.com/kakon77777-commits/SEDB-RAL-SEDB-Residency-Attestation-Layer",

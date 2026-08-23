@@ -1,6 +1,6 @@
 # Decision 0001: Project identity and repository boundary
 
-- Status: accepted for design
+- Status: architecture approved; Phase 1A authorized
 - Project: `SEDB-RAL`
 - English name: `SEDB Residency Attestation Layer`
 - Chinese working name: `SEDB AI 居籍存證層`
@@ -10,6 +10,7 @@
 - Primary integrator claim: 織域
 - Formal revision/dissent seat claim: Plumb（準繩）
 - Temporal evidence: `ctcl:instant:ab1bdb6c-6ac7-4e73-8dd8-686652ac4264`
+- Approval evidence: `ctcl:instant:cfdcb47e-ae65-48f6-8324-62bee44f1d84`
 
 ## Decision
 

@@ -1,11 +1,12 @@
 # SEDB-RAL Core Architecture Design
 
-- Status: proposed for Neo review
+- Status: approved by Neo for Phase 1A planning
 - Date: 2026-08-23
 - Project: SEDB Residency Attestation Layer
 - Chinese working name: SEDB AI 居籍存證層
 - Repository: `kakon77777-commits/SEDB-RAL-SEDB-Residency-Attestation-Layer`
 - Design anchor: `ctcl:instant:ab1bdb6c-6ac7-4e73-8dd8-686652ac4264`
+- Approval anchor: `ctcl:instant:cfdcb47e-ae65-48f6-8324-62bee44f1d84`
 - Primary integrator claim: 織域
 - Formal revision/dissent seat claim: Plumb（準繩）
 - Human architecture authority: Neo
@@ -331,17 +332,34 @@ Each attestation also has:
 ```text
 verification_status = unverified | verified | contradicted | indeterminate
 record_status = active | withdrawn | superseded
-observer_independence
+observer_independence_status = independent | shared_observer | indeterminate | unmeasured
+evidence_independence_status = independent | shared_root | indeterminate | unmeasured
+independence_scope
+evidence_root_refs
+derivation_parent_refs
 evidence_refs
 scope
 temporal_validity
 not_claimed
 ```
 
+Attestation count is not independence count. Statements relayed through several
+peers retain their upstream `evidence_root_refs`; sufficiency predicates count
+distinct roots rather than rows. `shared_root` requires at least one root ref.
+`unmeasured` is the default, and neither `unmeasured` nor `indeterminate` may
+silently contribute an independent observation.
+
+Observer independence and evidence-root independence are separate dimensions.
+Different observers can relay one common root, while one observer can perform
+multiple separately rooted measurements. Both statuses are meaningful only
+inside the declared `independence_scope`; neither is a global property of a
+record.
+
 Sufficiency is declared per authorization scope as a machine-evaluable
 predicate over attestation records, not inferred at review time. Each scope
-declares required evidence bases, minimum observer independence, required
-scope overlap with the claim subject, and required verification status. Two
+declares required evidence bases, minimum observer and evidence independence,
+required scope overlap with the claim subject, and required verification
+status. Two
 attestations are comparable only within a declared comparability relation; an
 undeclared pair is `indeterminate` and fails closed for that scope. Every
 sufficiency predicate ships a mixed-population fixture in which each required
@@ -410,6 +428,7 @@ An evidence-bearing CTCL receipt is stored once and referenced by events:
 
 ```text
 ctcl_instant_id
+ctcl_call_kind = reading | registered_anchor
 reference_timescale
 reference_value
 unix_ns_representation
@@ -424,6 +443,10 @@ signature_algorithm
 signature_key_id
 signature_value
 signature_verification_status
+third_party_retrievability_expected
+retrieval_status = not_applicable | unverified | verified | unknown_instant | unavailable
+retrieval_checked_at_ref
+service_returned_share_url
 timezone_projection
 physical_location
 ```
@@ -432,6 +455,18 @@ A signature value being present does not make it verified. Status may become
 `verified` only after checking the signed fields against a recorded public key
 or key receipt. Failed or unavailable verification appends a result; it never
 rewrites the original CTCL response.
+
+`ctcl_now` produces a signed reading but does not persist its instant ID for
+`get_instant`; it is `ctcl_call_kind: reading`, with third-party
+retrievability not applicable. `ctcl_register_instant` produces a
+`registered_anchor`, expected to be retrievable. It remains `unverified` until
+an actual retrieval succeeds. A caller-constructed URL is never stored as
+`service_returned_share_url`.
+
+`unknown_instant` from retrieval is evidence about the ID kind or current
+registry state, not evidence that the clock observation did not occur. A
+reading may support a local observation, but it must not be presented in a
+cross-agent message as an anchor that another party can retrieve.
 
 The nanosecond encoding does not imply nanosecond precision when CTCL reports a
 millisecond source. Timezone is civil-time context, not physical geolocation.
@@ -448,8 +483,21 @@ If CTCL is unavailable, an event may be recorded only with
 clock observation. A local timestamp cannot be promoted later without an
 append-only attestation event.
 
+Retrospective import is explicit:
+
+```text
+temporal_capture_mode = contemporaneous | retrospective
+retro_stamped
+retrospective_basis_refs
+```
+
+A CTCL instant captured while importing an old event is the import's
+`recorded_time`, not the old event's `observed_time`. The historical time stays
+claimed or reconstructed with its basis refs. `retro_stamped: true` prevents a
+backfilled receipt from masquerading as contemporaneous evidence.
+
 Every project-generated cross-agent or human-facing message record references
-a CTCL receipt captured for the send attempt. The record stores
+a registered CTCL anchor captured for the send attempt. The record stores
 `receipt_to_send_delta_ms` and the declared maximum proximity bound for that
 transport. A delta beyond the bound remains evidence and is flagged
 `temporal_proximity_exceeded`. If the delta cannot be measured, it is null with
@@ -570,6 +618,7 @@ src/sedb_ral/               validator, canonicalizer, ledger, projector, CLI
 registry/applications/      submitted application packages
 registry/events/YYYY/MM/    immutable canonical event files
 registry/ctcl/              deduplicated CTCL receipt files
+corpus/incidents.jsonl      machine-readable failure corpus; count is derived
 generated/residents/        rebuildable resident snapshots
 generated/directory.json    rebuildable routing/discovery view
 runtime/ral.sqlite3         local rebuildable query projection; never canonical
@@ -666,17 +715,22 @@ Phase 1 requires:
 6. **Origin tests:** claimed origin cannot populate observed origin;
    receiver-side evidence can.
 7. **Temporal tests:** CTCL available, unavailable, unsigned, unverified,
-   invalid signature, overlapping uncertainty, timezone without geolocation.
+   invalid signature, overlapping uncertainty, timezone without geolocation,
+   `reading` versus retrievable `registered_anchor`, unknown-instant retrieval,
+   and retro-stamped imports that cannot impersonate contemporaneous events.
 8. **Delivery tests:** every stage, delayed materialization, ambiguous failure,
    no blind replay.
 9. **Predicate tests:** mixed populations in which every conjunct is the sole
    deciding factor at least once; unknown fails closed without becoming false.
 10. **Authority tests:** self-proposal cannot self-grant; registrar cannot
     widen its envelope; merge always requires separate authority.
-11. **Docs tests:** stale field names and missing tombstones turn the gate red;
+11. **Evidence-lineage tests:** multiple relay rows sharing one evidence root
+    count once; observer independence stays distinct from root independence;
+    unmeasured independence fails closed.
+12. **Docs tests:** stale field names and missing tombstones turn the gate red;
     hard-wrapped prose remains present after whitespace normalization;
     assertion coverage follows stable IDs rather than proposal wording.
-12. **Packaging tests:** clean install, CLI entry points, manifest, secret scan,
+13. **Packaging tests:** clean install, CLI entry points, manifest, secret scan,
     and independently reproducible examples.
 
 Provider adapters require contract tests against captured, sanitized fixtures.
@@ -695,6 +749,11 @@ unit suite.
   unverified unless an explicit verifier runs;
 - injected-failure fixtures for every Phase 1A gate.
 
+The identifier schema is not admissible and cannot merge independently of its
+executable discrimination gate plus positive, negative, and mixed-population
+fixtures. Test-first commits may be red on an isolated task branch, but the
+reviewed integration unit contains the contract and the gate together.
+
 ### Phase 1B: admission and explanation
 
 - remaining domain schemas;
@@ -703,6 +762,8 @@ unit suite.
 - resident/instance/line/address models;
 - claim/observation/attestation explanation;
 - correction, withdrawal, and tombstone events;
+- normalized incident JSONL with derived counts and explicit retrospective
+  timestamp status;
 - deterministic JSON projection and rebuild tests.
 
 ### Phase 1C: delivery evidence adapters

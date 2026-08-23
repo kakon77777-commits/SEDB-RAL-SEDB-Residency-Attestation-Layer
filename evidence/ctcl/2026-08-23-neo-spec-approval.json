@@ -1,0 +1,69 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_registered_spec_approval_observation",
+  "ctcl_semantics": {
+    "call_kind": "registered_anchor",
+    "third_party_retrievability_expected": true,
+    "retrieval_status": "verified"
+  },
+  "id": "ctcl:instant:cfdcb47e-ae65-48f6-8324-62bee44f1d84",
+  "unix_ns": "1787473299097000000",
+  "reference_timescale": "utc",
+  "registered_at": "2026-08-23T08:21:39.097Z",
+  "label": "sedb-ral-neo-spec-approval-received",
+  "meta": {
+    "project": "SEDB-RAL",
+    "event": "Neo approved spec and authorized Phase 1A",
+    "user_text": "spec 核准，進 Phase 1A",
+    "claimed_recorder": "agent://evemisslab/line/zhiyu",
+    "authority_scope": "write implementation plan, then execute approved Phase 1A under TDD",
+    "signature_scope_note": "CTCL signature covers instant_id|unix_ns|timescale, not user text, authority, or authorship"
+  },
+  "from_wall_clock": true,
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "euh81P7Xl3agjNeFO5hxoz6B6T9nO81bWzgyi9MI+LfoyCDwwnu8Z/ai/UQEWkL1ew9DWAR/OSyrQ5D3nlZfCg==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrieval_verification": {
+    "method": "CTCL MCP get_instant",
+    "status": "retrieved",
+    "matched_fields": [
+      "id",
+      "unix_ns",
+      "reference_timescale",
+      "registered_at",
+      "label",
+      "meta",
+      "signature",
+      "encodings",
+      "timescales"
+    ]
+  },
+  "encodings": {
+    "unix_s": "1787473299.097",
+    "unix_ms": "1787473299097",
+    "unix_us": "1787473299097000",
+    "unix_ns": "1787473299097000000",
+    "rfc3339": "2026-08-23T08:21:39.097Z"
+  },
+  "timescales": {
+    "utc": "2026-08-23T08:21:39.097Z",
+    "posix": "1787473299.097",
+    "tai_approx": "1787473336.097",
+    "gps_approx": "1787473317.097"
+  },
+  "observation": {
+    "source": "current Codex conversation user message",
+    "authority_claim_status": "conversation_surface_observed",
+    "signature_covers_authority": false
+  },
+  "not_claimed": [
+    "signature coverage of user text or authority scope",
+    "cryptographic identity of Neo",
+    "independent verification of the Ed25519 signature"
+  ]
+}

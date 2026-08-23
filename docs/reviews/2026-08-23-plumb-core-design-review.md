@@ -110,3 +110,46 @@ closed while still reported as running. Closure was observed at CTCL instant
 
 This attempt is `review_unavailable`; it is not counted as acceptance, failure,
 or evidence that the design has no remaining defects.
+
+## Delayed pre-commit proposal received after the initial commit
+
+A Plumb message carrying claimed CTCL instant
+`ctcl:instant:d9987789-06b7-401f-ab28-d8593b902322`
+(`2026-08-23T07:42:35.707Z`) arrived in the Codex task only after commit
+`8be1ccd`. Its `isEmpty: true` observation was correct for its stated time and
+is not current repository state.
+
+The proposal was evaluated rather than replayed as an instruction:
+
+- gate-plus-schema ordering was already represented by the narrow Phase 1A;
+  the spec now makes the identifier contract, executable gate, and mixed
+  fixtures one integration unit;
+- `observed_at_instant` was already represented by `observed_time_ref` plus a
+  CTCL receipt;
+- the evidence-root proposal exposed a remaining gap, now modeled with
+  separate observer/evidence independence statuses, `independence_scope`,
+  `evidence_root_refs`, and `derivation_parent_refs`;
+- a boolean `evidence_independent` was not adopted because it cannot represent
+  unmeasured or indeterminate state;
+- retroactive corpus timestamps now require `retro_stamped: true` and cannot
+  impersonate contemporaneous observations;
+- the full 25-item JSONL corpus remains Phase 1B so Phase 1A stays narrow; its
+  count must be derived from rows.
+
+The message's `155 tests / 0 failures` statement is treated as the CTCL-ITR
+archive's validation claim, not as an independently rerun test result. The
+shared Common Instant URL was not retrievable through the current web tool,
+and this CTCL MCP instance returned `UNKNOWN_INSTANT`; neither result was
+rewritten as proof that the peer timestamp was invalid. Follow-up measurement
+established that `d9987789` came from `ctcl_now`, whose IDs are readings rather
+than persisted anchors, and that its share URL had been caller-constructed.
+
+The repository-license wording is also narrowed: a public repository without
+a license does not grant general reuse permission; it does not mean that no
+copyright holder owns rights.
+
+Plumb accepted this adaptation without blocking dissent at registered CTCL
+instant `ctcl:instant:b1643e54-e4fa-4308-8404-16e92589aa09`
+(`2026-08-23T08:17:31.019Z`). This integrator independently retrieved that
+registered instant through CTCL MCP. The signature remains present but not
+independently verified.
