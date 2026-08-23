@@ -1,0 +1,67 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_registered_plan_verification",
+  "ctcl_semantics": {
+    "call_kind": "registered_anchor",
+    "third_party_retrievability_expected": true,
+    "retrieval_status": "verified"
+  },
+  "id": "ctcl:instant:e1bc7137-a766-46d0-b4a8-a551c961552b",
+  "unix_ns": "1787474814024000000",
+  "reference_timescale": "utc",
+  "registered_at": "2026-08-23T08:46:54.024Z",
+  "label": "sedb-ral-phase-1a-plan-verified",
+  "meta": {
+    "project": "SEDB-RAL",
+    "phase": "Phase 1A",
+    "artifact": "docs/superpowers/plans/2026-08-23-phase-1a-deterministic-core.md",
+    "artifact_sha256": "af48ae5e66aecd0ed619e5b1ecf954a9fa790379eea10abe5c8a1cc77ded1b72",
+    "artifact_lines": 1710,
+    "basis_tree_sha": "96a2b41004fc4ff89c6b98f9fdcec37e11b35edc",
+    "verification": "PASS python_blocks=21 json_blocks=3 tasks=8 steps=51 files=13 json=6",
+    "claimed_recorder": "agent://evemisslab/line/zhiyu",
+    "signature_scope_note": "CTCL signature covers instant_id|unix_ns|timescale, not artifact hash, Git tree, plan content, or authorship"
+  },
+  "from_wall_clock": true,
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "b7UDeFDfCGf4A9rUDA/3vl3B8+cOS9Z+/gOA3McQG7H+VFWOhxSZqsNySxY2s5JM5pGtv4hfsFy/pAWv77M0Dg==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrieval_verification": {
+    "method": "CTCL MCP get_instant",
+    "status": "retrieved",
+    "matched_fields": [
+      "id",
+      "unix_ns",
+      "reference_timescale",
+      "registered_at",
+      "label",
+      "meta",
+      "signature",
+      "encodings",
+      "timescales"
+    ]
+  },
+  "encodings": {
+    "unix_s": "1787474814.024",
+    "unix_ms": "1787474814024",
+    "unix_us": "1787474814024000",
+    "unix_ns": "1787474814024000000",
+    "rfc3339": "2026-08-23T08:46:54.024Z"
+  },
+  "timescales": {
+    "utc": "2026-08-23T08:46:54.024Z",
+    "posix": "1787474814.024",
+    "tai_approx": "1787474851.024",
+    "gps_approx": "1787474832.024"
+  },
+  "not_claimed": [
+    "signature coverage of plan bytes, plan hash, Git tree, or meta",
+    "cryptographic authorship of the plan",
+    "independent verification of the Ed25519 signature"
+  ]
+}

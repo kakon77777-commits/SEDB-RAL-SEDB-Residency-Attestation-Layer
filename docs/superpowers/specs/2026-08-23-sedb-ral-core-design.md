@@ -613,7 +613,7 @@ replay, or authority expansion.
 The planned repository layout is:
 
 ```text
-schemas/                    stable JSON contracts
+src/sedb_ral/schemas/       stable JSON contracts shipped with the package
 src/sedb_ral/               validator, canonicalizer, ledger, projector, CLI
 registry/applications/      submitted application packages
 registry/events/YYYY/MM/    immutable canonical event files
