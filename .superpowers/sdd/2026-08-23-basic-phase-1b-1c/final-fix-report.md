@@ -663,3 +663,146 @@ python -m pytest -q tests/test_phase1a_checkpoint.py
 - No Phase 2 file or SEDB adapter/import was added under `src/sedb_ral`.
 - No network/provider send, provider CLI, nudge protocol, push, merge, release,
   deployment, or publication action occurred.
+
+## Second Residual Fix
+
+### Status and scope
+
+PASS. This cycle changes only the final event-order Critical: an accepted
+application whose bound authority is revoked before `resident.registered` may
+retain accepted/source history but may not create a resident.
+
+The implementation commit is
+`19cf79f2e89d3ac0747b7077218625293e1924a3` (`fix: recheck authority at
+resident projection`). This section is carried by the immediately following
+local documentation commit, identified as `HEAD` at handoff and returned with
+its exact hash in the final response.
+
+### Focused RED
+
+```powershell
+python -m pytest tests/test_projection.py::test_intervening_revocation_blocks_registration_without_erasing_acceptance -q
+```
+
+```text
+1 failed in 0.72s
+AssertionError: projection.residents contained resident:test instead of {}
+```
+
+The failing sequence was:
+
+```text
+authority.granted
+application.submitted
+application.accepted
+authority.revoked
+resident.registered
+```
+
+The application correctly remained accepted, but registration trusted that
+prior status without rechecking the application-bound grant at the current
+ledger sequence.
+
+### Minimal GREEN
+
+At `resident.registered`, projection now resolves the accepted application's
+stored `authority_grant_event_id`, `authority_ref`, and `authority_digest`
+against the canonical grant index and checks the matched grant against the
+revocation set. An intervening revocation leaves registration unapplied with
+`resident_registration_authority_revoked`.
+
+Accepted application fields and all grant/submit/accept/revoke/register source
+event IDs remain present. No accepted history is erased.
+
+The new control and the normal accept→register positive control were run
+together:
+
+```powershell
+python -m pytest tests/test_projection.py::test_intervening_revocation_blocks_registration_without_erasing_acceptance tests/test_projection.py::test_projection_rebuilds_application_resident_and_directory -q
+```
+
+```text
+2 passed in 1.12s
+```
+
+### Focused regression
+
+```powershell
+python -m pytest tests/test_projection.py tests/test_phase1bc_gate.py -q
+```
+
+```text
+38 passed in 19.24s
+```
+
+### Full gates
+
+Full suite, executed once for this second residual cycle:
+
+```powershell
+python -m pytest -q
+```
+
+```text
+284 passed, 1 skipped in 35.12s
+SKIPPED tests/test_ledger.py:323: directory symlink unavailable: [WinError 1314]
+```
+
+Phase 1A:
+
+```powershell
+python scripts/validate_phase1a.py
+```
+
+Exit `0`; `passed:true`, `error_codes:[]`, ledger status
+`checkpoint_verified`, and observed decisions `admit`, `indeterminate`, and
+`reject`.
+
+Basic Phase 1B/1C:
+
+```powershell
+python scripts/validate_phase1bc.py
+```
+
+Exit `0`; `passed:true`, `phase1a_passed:true`, `error_codes:[]`,
+`required_artifact_count:82`, incident count `29`, pinned incident SHA-256
+`9a4a504621d6837b0724cbfebc7a9db84a5f260103d9ce585a3087a39a6a3828`,
+`sqlite_bytes_identical:true`, no no-send findings, and every recorded positive
+and corrupted control matched its expected outcome.
+
+Installed CLI:
+
+```powershell
+$env:PATH = 'C:\Users\kakon\AppData\Local\Python\pythoncore-3.14-64\Scripts;' + $env:PATH
+sedb-ral phase1bc verify .
+```
+
+Exit `0`; output matched the script gate, including
+`required_artifact_count:82` and `error_codes:[]`.
+
+Remaining gates:
+
+```powershell
+git diff --check
+# exit 0; no output
+
+rg --files -g '*.sqlite3' -g '!*.sqlite3-journal' .
+# exit 1; no matches, expected clean result
+
+python -m pytest -q tests/test_phase1a_checkpoint.py
+# 3 passed in 3.00s
+```
+
+### Files changed
+
+- `src/sedb_ral/projection.py`
+- `tests/test_projection.py`
+- `.superpowers/sdd/2026-08-23-basic-phase-1b-1c/final-fix-report.md`
+
+### Concerns and boundary confirmations
+
+- The only unresolved verification limitation remains the Windows
+  directory-symlink privilege skip (`WinError 1314`); no test failed.
+- No other cluster, Phase 2 file, SEDB adapter/import, provider send or CLI,
+  nudge protocol, push, merge, release, deployment, or publication was touched
+  or performed.
