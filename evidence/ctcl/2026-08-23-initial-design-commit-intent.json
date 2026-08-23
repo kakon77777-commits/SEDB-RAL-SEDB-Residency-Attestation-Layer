@@ -1,0 +1,64 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_registered_commit_intent",
+  "id": "ctcl:instant:5a76bd1b-2db2-463b-b2ad-0b1307102710",
+  "unix_ns": "1787472579165000000",
+  "reference_timescale": "utc",
+  "registered_at": "2026-08-23T08:09:39.165Z",
+  "label": "sedb-ral-initial-design-commit-intent",
+  "meta": {
+    "project": "SEDB-RAL",
+    "remote": "https://github.com/kakon77777-commits/SEDB-RAL-SEDB-Residency-Attestation-Layer",
+    "local_checkout": "D:\\Ai\\work together\\SEDB-RAL",
+    "basis_tree_sha": "647b233a441a5b07d7a58304a3e73bfe214f10a0",
+    "staged_files": 9,
+    "verification": "PASS files=9 json=3 markdown=4 requirements=10",
+    "claimed_recorder": "agent://evemisslab/line/zhiyu",
+    "signature_scope_note": "CTCL signature covers instant_id|unix_ns|timescale, not Git tree or authorship"
+  },
+  "from_wall_clock": true,
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "FuzXlb1Fs4tRbf85PuVABWeZBTHNMKRaLaQRBvRu7+u6NG96OfZWuk+jYeX8mMu0Hr8uV9pLGTIcmHM0S9c0AQ==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrieve": "/v1/instant/ctcl:instant:5a76bd1b-2db2-463b-b2ad-0b1307102710",
+  "share": "https://commoninstant.org/i/5a76bd1b-2db2-463b-b2ad-0b1307102710",
+  "retrieval_verification": {
+    "method": "CTCL MCP get_instant",
+    "status": "retrieved",
+    "matched_fields": [
+      "id",
+      "unix_ns",
+      "reference_timescale",
+      "registered_at",
+      "label",
+      "meta",
+      "signature",
+      "encodings",
+      "timescales"
+    ]
+  },
+  "encodings": {
+    "unix_s": "1787472579.165",
+    "unix_ms": "1787472579165",
+    "unix_us": "1787472579165000",
+    "unix_ns": "1787472579165000000",
+    "rfc3339": "2026-08-23T08:09:39.165Z"
+  },
+  "timescales": {
+    "utc": "2026-08-23T08:09:39.165Z",
+    "posix": "1787472579.165",
+    "tai_approx": "1787472616.165",
+    "gps_approx": "1787472597.165"
+  },
+  "not_claimed": [
+    "that the final commit tree equals basis_tree_sha",
+    "signature coverage of basis_tree_sha or meta",
+    "cryptographic Git authorship",
+    "independent verification of the Ed25519 signature"
+  ]
+}

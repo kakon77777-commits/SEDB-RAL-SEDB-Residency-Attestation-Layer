@@ -1,0 +1,76 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_project_inception_observation",
+  "project": {
+    "name": "SEDB-RAL",
+    "remote": "https://github.com/kakon77777-commits/SEDB-RAL-SEDB-Residency-Attestation-Layer",
+    "local_checkout": "D:\\Ai\\work together\\SEDB-RAL"
+  },
+  "claimed_recorder": "agent://evemisslab/line/zhiyu",
+  "ctcl_now_response": {
+    "instant": {
+      "id": "ctcl:instant:ab1bdb6c-6ac7-4e73-8dd8-686652ac4264",
+      "reference": {
+        "timescale": "utc",
+        "value": "2026-08-23T07:37:14.866Z"
+      }
+    },
+    "encodings": {
+      "unix_s": "1787470634.866",
+      "unix_ms": "1787470634866",
+      "unix_us": "1787470634866000",
+      "unix_ns": "1787470634866000000",
+      "rfc3339": "2026-08-23T07:37:14.866Z"
+    },
+    "timescales": {
+      "utc": "2026-08-23T07:37:14.866Z",
+      "posix": "1787470634.866",
+      "tai_approx": "1787470671.866",
+      "gps_approx": "1787470652.866"
+    },
+    "source": {
+      "class": "edge_wall_clock",
+      "protocol": "cloudflare-edge",
+      "provider": "cloudflare",
+      "sync_status": "synchronized"
+    },
+    "quality": {
+      "precision": "millisecond_representation",
+      "estimated_uncertainty_ns": 5000000,
+      "synchronized": true,
+      "note": "ns/us fields are zero-padded from a millisecond source; precision is not accuracy"
+    },
+    "policy": {
+      "leap_second": "posix_compatible",
+      "tai_minus_utc_s": 37,
+      "gps_minus_utc_s": 18,
+      "leap_table_as_of": "2017-01-01"
+    },
+    "signature": {
+      "alg": "Ed25519",
+      "key_id": "ctcl-ed25519-1",
+      "signed_fields": "instant_id|unix_ns|timescale",
+      "value": "WdE2Hrgu7vhAM+yCJZBBNyN+yvbFeAId7ywjgQZHiUJlbBYnTxnayQtIFVAeuLFo4kdpVpLSQLMHg4wLn1JbDQ==",
+      "verify_endpoint": "/v1/pubkey",
+      "verification_status": "not_performed"
+    }
+  },
+  "timezone_projection": {
+    "timezone": "Asia/Taipei",
+    "value": "2026-08-23T15:37:14.866+08:00",
+    "canonical_unix_ns": "1787470634866000000",
+    "lossless": true
+  },
+  "spatial_context": {
+    "observation_scope": "local_workspace_checkout",
+    "workspace_path": "D:\\Ai\\work together\\SEDB-RAL",
+    "physical_location": null,
+    "timezone_is_physical_location": false
+  },
+  "not_claimed": [
+    "cryptographic verification of the returned signature",
+    "physical geolocation",
+    "causal ordering derived from wall-clock time",
+    "that repository creation occurred at this exact instant"
+  ]
+}

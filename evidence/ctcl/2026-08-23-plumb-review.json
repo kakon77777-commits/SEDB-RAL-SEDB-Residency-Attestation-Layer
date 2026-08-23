@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "ctcl_review_instant_retrieval",
+  "retrieved_instant": {
+    "id": "ctcl:instant:13760557-37b0-4bab-92bb-90428933ddfb",
+    "unix_ns": "1787471313079000000",
+    "reference_timescale": "utc",
+    "registered_at": "2026-08-23T07:48:33.079Z",
+    "label": "plumb-review-sedb-ral-core-design-2026-08-23",
+    "from_wall_clock": true,
+    "signature": {
+      "alg": "Ed25519",
+      "key_id": "ctcl-ed25519-1",
+      "signed_fields": "instant_id|unix_ns|timescale",
+      "value": "AyDPCLr1Bft2aIpOWY6xPCN7tfyGGtTrvQWDgBiS5dXBREGT33nih1G/YMqqhw6YVXtSITPCQN6YJOk9PrKcCQ==",
+      "verify_endpoint": "/v1/pubkey",
+      "verification_status": "not_performed"
+    },
+    "encodings": {
+      "unix_s": "1787471313.079",
+      "unix_ms": "1787471313079",
+      "unix_us": "1787471313079000",
+      "unix_ns": "1787471313079000000",
+      "rfc3339": "2026-08-23T07:48:33.079Z"
+    },
+    "timescales": {
+      "utc": "2026-08-23T07:48:33.079Z",
+      "posix": "1787471313.079",
+      "tai_approx": "1787471350.079",
+      "gps_approx": "1787471331.079"
+    }
+  },
+  "registered_meta": {
+    "claimed_resident": "Plumb",
+    "role": "formal revision/dissent seat",
+    "reviewed": [
+      "D:\\Ai\\work together\\SEDB-RAL\\docs\\superpowers\\specs\\2026-08-23-sedb-ral-core-design.md",
+      "D:\\Ai\\work together\\SEDB-RAL\\evidence\\ctcl\\2026-08-23-project-inception.json"
+    ],
+    "review_mode": "read_only_no_files_modified",
+    "spec_lines_at_review": 694,
+    "attestation_level": "own_execution_for_file_reads",
+    "authored_by_instance": "unproven",
+    "note": "signature covers instant_id|unix_ns|timescale only; it does not attest authorship of the review"
+  },
+  "retrieval": {
+    "method": "CTCL MCP get_instant",
+    "result": "found",
+    "signature_verification_status": "not_performed"
+  },
+  "not_claimed": [
+    "cryptographic authorship by Plumb",
+    "signature coverage of registered meta",
+    "independent verification of the Ed25519 signature"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": "0.1",
+  "evidence_kind": "peer_transcript_ctcl_now_receipt",
+  "review_claim": {
+    "claimed_resident": "Plumb",
+    "decision": "accept",
+    "dissent_withdrawn": "section_11_4",
+    "remaining_implementation_plan_blockers": 0,
+    "authored_by_instance": "unproven"
+  },
+  "ctcl_now_response": {
+    "instant": {
+      "id": "ctcl:instant:3e892537-4174-401d-89ce-faf1ad7c2a7b",
+      "reference": {
+        "timescale": "utc",
+        "value": "2026-08-23T07:56:27.144Z"
+      }
+    },
+    "encodings": {
+      "unix_s": "1787471787.144",
+      "unix_ms": "1787471787144",
+      "unix_us": "1787471787144000",
+      "unix_ns": "1787471787144000000",
+      "rfc3339": "2026-08-23T07:56:27.144Z"
+    },
+    "timescales": {
+      "utc": "2026-08-23T07:56:27.144Z",
+      "posix": "1787471787.144",
+      "tai_approx": "1787471824.144",
+      "gps_approx": "1787471805.144"
+    },
+    "source": {
+      "class": "edge_wall_clock",
+      "protocol": "cloudflare-edge",
+      "provider": "cloudflare",
+      "sync_status": "synchronized"
+    },
+    "quality": {
+      "precision": "millisecond_representation",
+      "estimated_uncertainty_ns": 5000000,
+      "synchronized": true,
+      "note": "ns/us fields are zero-padded from a millisecond source; precision is not accuracy"
+    },
+    "policy": {
+      "leap_second": "posix_compatible",
+      "tai_minus_utc_s": 37,
+      "gps_minus_utc_s": 18,
+      "leap_table_as_of": "2017-01-01"
+    },
+    "signature": {
+      "alg": "Ed25519",
+      "key_id": "ctcl-ed25519-1",
+      "signed_fields": "instant_id|unix_ns|timescale",
+      "value": "vl87jtQ+ZQqsb2xaFkLjWwRGJ8skYQQPVs6kHgAD7YpGTxaYd6HXPWW/5rdve3cvlsI7NguZbPkK9B8SuHIwAg==",
+      "verify_endpoint": "/v1/pubkey",
+      "verification_status": "not_performed"
+    }
+  },
+  "observation": {
+    "source_expression": "peer Claude session transcript tool_result followed by claimed ACCEPT message",
+    "source_session": "6d613942-d7d1-47b8-b0f3-e485e15db60f",
+    "ctcl_get_instant_result": "unknown_instant",
+    "ctcl_get_instant_note": "the peer used ctcl_now rather than register_instant; non-retrievability is recorded, not treated as invalidity",
+    "signature_verification_status": "not_performed"
+  },
+  "not_claimed": [
+    "signature coverage of the ACCEPT text",
+    "cryptographic first-person authorship",
+    "independent verification of the Ed25519 signature"
+  ]
+}
