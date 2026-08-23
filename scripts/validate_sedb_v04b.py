@@ -136,7 +136,7 @@ def _adapt_sedb_export(
         for local_key, value in values.items():
             ral_path = ral_paths_by_local_key.get(str(local_key))
             if ral_path is None:
-                raise ValueError(f"sedb_export_field_unmapped:{local_key}")
+                ral_path = f"sedb_unmapped.{local_key}"
             adapted_values[ral_path] = value
         adapted.append(
             {

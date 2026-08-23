@@ -145,3 +145,30 @@ def project_to_sedb_records(
             }
         )
     return tuple(sorted(records, key=lambda record: str(record["id"])))
+
+
+def project_to_sedb_comparison_records(
+    projection: RegistryProjection, mapping: Mapping[str, object]
+) -> tuple[dict[str, object], ...]:
+    """Add comparison-only authority evidence without expanding SEDB writes."""
+    records = project_to_sedb_records(projection, mapping)
+    comparison_records: list[dict[str, object]] = []
+    for record in records:
+        values = dict(record["values"])
+        resident = projection.residents[str(record["id"])]
+        application = projection.applications.get(resident.get("application_ref"))
+        if isinstance(application, Mapping):
+            authority_ref = application.get("authority_ref")
+            authority_digest = application.get("authority_digest")
+            if (
+                isinstance(authority_ref, str)
+                and authority_ref
+                and isinstance(authority_digest, str)
+                and authority_digest
+            ):
+                values["ral.authority"] = {
+                    "authority_ref": authority_ref,
+                    "authority_digest": authority_digest,
+                }
+        comparison_records.append({**record, "values": values})
+    return tuple(comparison_records)

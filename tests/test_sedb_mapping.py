@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import sedb_ral.sedb_mapping as sedb_mapping
 from sedb_ral.canonical import canonical_bytes
 from sedb_ral.errors import RALValidationError
 from sedb_ral.projection import RegistryProjection
@@ -77,6 +78,40 @@ def test_missing_address_remains_absent_not_false():
     record = project_to_sedb_records(PROJECTION, MAPPING)[0]
 
     assert "ral.addresses" not in record["values"]
+
+
+def test_comparison_projection_adds_authority_without_changing_write_records():
+    projection = replace(
+        PROJECTION,
+        applications={
+            "application:test:1": {
+                "status": "accepted",
+                "authority_ref": "authority:neo:test",
+                "authority_digest": (
+                    "sha256:sedb-ral-json-nfc-codepoint-v1:"
+                    + "1" * 64
+                ),
+            }
+        },
+    )
+    write_records = project_to_sedb_records(projection, MAPPING)
+    comparison_projector = getattr(
+        sedb_mapping, "project_to_sedb_comparison_records", None
+    )
+
+    assert callable(comparison_projector), (
+        "Phase 2 needs a comparison-only projection distinct from SEDB writes"
+    )
+    comparison_records = comparison_projector(projection, MAPPING)
+
+    assert write_records == project_to_sedb_records(projection, MAPPING)
+    assert "ral.authority" not in write_records[0]["values"]
+    assert comparison_records[0]["values"]["ral.authority"] == {
+        "authority_ref": "authority:neo:test",
+        "authority_digest": (
+            "sha256:sedb-ral-json-nfc-codepoint-v1:" + "1" * 64
+        ),
+    }
 
 
 def test_resident_source_addresses_and_instances_win_over_directory_copy():

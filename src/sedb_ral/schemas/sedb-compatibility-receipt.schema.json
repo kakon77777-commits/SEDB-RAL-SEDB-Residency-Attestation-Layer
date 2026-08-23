@@ -279,7 +279,21 @@
           "signature_presence",
           "ctcl",
           "error_codes"
-        ]
+        ],
+        "properties": {
+          "package": {
+            "properties": {
+              "name": {"const": "sedb-local"},
+              "version": {"const": "0.4.0b1"},
+              "source_commit": {
+                "const": "139b9952bb283b2e95f7690d76e3c5fbcdc680aa"
+              }
+            }
+          },
+          "mapping_profile_digest": {
+            "const": "sha256:sedb-ral-json-nfc-codepoint-v1:07d67d5135b97ba8a9521e3f6c33a6897e64ec65422a02cabea6cb0c398d9ef5"
+          }
+        }
       }
     },
     {

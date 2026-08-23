@@ -202,7 +202,7 @@ def test_v04b_export_adapter_restores_ral_paths_from_checked_in_mapping():
     )
 
 
-def test_v04b_export_adapter_fails_closed_on_unmapped_local_field():
+def test_v04b_export_adapter_preserves_unknown_field_for_comparison():
     raw_records = (
         {
             "id": "resident:test",
@@ -212,8 +212,16 @@ def test_v04b_export_adapter_fails_closed_on_unmapped_local_field():
         },
     )
 
-    with pytest.raises(ValueError, match="sedb_export_field_unmapped:authority"):
-        _adapt_sedb_export(raw_records, MAPPING)
+    assert _adapt_sedb_export(raw_records, MAPPING) == (
+        {
+            "id": "resident:test",
+            "kind": "ai_resident",
+            "label": "Test Resident",
+            "values": {
+                "sedb_unmapped.authority": {"scope": "forbidden"},
+            },
+        },
+    )
 
 
 def test_v04b_export_adapter_rejects_duplicate_local_key_before_adaptation():

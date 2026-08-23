@@ -333,3 +333,27 @@ def test_json_report_preserves_missing_and_null_for_canonical_serialization():
     }
     assert json.loads(json.dumps(payload)) == payload
     assert canonical_bytes(payload)
+
+
+def test_malformed_record_collections_have_stable_canonical_diagnostics():
+    malformed = (
+        {
+            "id": "resident:a",
+            "kind": "ai_resident",
+            "label": "Alpha",
+        },
+    )
+
+    report = compare_sedb_projection(EXPECTED, malformed, MAPPING)
+    payload = report.as_json()
+
+    assert report.passed is False
+    assert payload["differences"][0]["expected"]["value"] == {
+        "diagnostic_collection": "frozenset",
+        "items": ["id", "kind", "label", "values"],
+    }
+    assert payload["differences"][0]["actual"]["value"] == {
+        "diagnostic_collection": "set",
+        "items": ["id", "kind", "label"],
+    }
+    assert canonical_bytes(payload) == canonical_bytes(report.as_json())

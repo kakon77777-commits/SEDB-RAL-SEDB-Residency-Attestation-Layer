@@ -27,7 +27,7 @@ from .application import evaluate_application
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sedb-ral",
-        description="SEDB-RAL Phase 1A deterministic core",
+        description="SEDB-RAL Basic Phase 2 compatibility gate",
     )
     parser.add_argument("--version", action="store_true")
     commands = parser.add_subparsers(dest="command")

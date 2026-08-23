@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+import sedb_ral.phase2 as phase2_module
+from sedb_ral.no_send import scan_task5_no_send
 from scripts.validate_phase2 import main as script_main
 from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.cli import main as cli_main
@@ -51,6 +53,28 @@ def finalize_for_test(report):
     )
 
 
+def coherently_reidentify(report):
+    subject_id = sha256_ref(
+        {
+            "kind": "sedb-ral-basic-phase2-receipt",
+            "adoption_profile_id": report.adoption_profile_id,
+            "adoption_profile_version": report.adoption_profile_version,
+            "mapping_profile_id": report.mapping_profile_id,
+            "mapping_profile_version": report.mapping_profile_version,
+            "archive_sha256": report.archive["sha256"],
+            "mapping_profile_digest": report.mapping_profile_digest,
+        }
+    )
+    identified = replace(
+        report,
+        compatibility_subject_id=subject_id,
+        receipt_id=None,
+    )
+    payload = identified.as_json()
+    del payload["receipt_id"]
+    return replace(identified, receipt_id=sha256_ref(payload))
+
+
 def assert_write_rejected(report, tmp_path, error_code):
     destination = tmp_path / "VALIDATION_BASIC_PHASE2.json"
     with pytest.raises(RALValidationError, match=error_code):
@@ -60,7 +84,101 @@ def assert_write_rejected(report, tmp_path, error_code):
 
 def test_basic_phase2_gate_passes_exact_archive(phase2_report):
     assert phase2_report.passed is True
+    assert phase2_report.diff_counts["expected_by_mapping"] >= 1
+    assert phase2_report.diff_counts["unmapped"] == 0
     assert phase2_report.diff_counts["contradiction"] == 0
+
+
+def test_unknown_actual_field_is_unmapped_and_overall_passes(monkeypatch):
+    if not ARCHIVE.is_file():
+        pytest.skip("archive_unavailable")
+    run_integration = phase2_module._run_task5_integration
+
+    def run_with_unknown_field(*args, **kwargs):
+        result = run_integration(*args, **kwargs)
+        exported_records = copy.deepcopy(result.exported_records)
+        exported_records[0]["values"]["sedb_unmapped.future"] = {
+            "source": "isolated-sedb-export"
+        }
+        return replace(
+            result,
+            exported_records=tuple(exported_records),
+            records_match=False,
+        )
+
+    monkeypatch.setattr(
+        phase2_module, "_run_task5_integration", run_with_unknown_field
+    )
+
+    report = validate_basic_phase2(ROOT, ARCHIVE)
+
+    assert report.passed is True
+    assert report.integration["records_match"] is False
+    assert report.diff_counts == {
+        "expected_by_mapping": 1,
+        "unmapped": 1,
+        "contradiction": 0,
+    }
+
+
+def test_mapped_actual_field_contradiction_fails_overall(monkeypatch):
+    if not ARCHIVE.is_file():
+        pytest.skip("archive_unavailable")
+    run_integration = phase2_module._run_task5_integration
+
+    def run_with_mapped_contradiction(*args, **kwargs):
+        result = run_integration(*args, **kwargs)
+        exported_records = copy.deepcopy(result.exported_records)
+        exported_records[0]["values"]["ral.resident_id"] = "resident:wrong"
+        return replace(
+            result,
+            exported_records=tuple(exported_records),
+            records_match=False,
+        )
+
+    monkeypatch.setattr(
+        phase2_module,
+        "_run_task5_integration",
+        run_with_mapped_contradiction,
+    )
+
+    report = validate_basic_phase2(ROOT, ARCHIVE)
+
+    assert report.passed is False
+    assert report.integration["records_match"] is False
+    assert report.diff_counts == {
+        "expected_by_mapping": 1,
+        "unmapped": 0,
+        "contradiction": 1,
+    }
+    assert report.error_codes == ("sedb_mapping_contradiction",)
+
+
+def test_phase2_gate_rejects_injected_task5_network_call(
+    tmp_path, monkeypatch
+):
+    if not ARCHIVE.is_file():
+        pytest.skip("archive_unavailable")
+    injected_script = tmp_path / "validate_sedb_v04b.py"
+    injected_script.write_text(
+        (ROOT / "scripts/validate_sedb_v04b.py").read_text(encoding="utf-8")
+        + "\nimport socket\nsocket.create_connection(('example.test', 443))\n",
+        encoding="utf-8",
+    )
+    injected_findings = scan_task5_no_send(injected_script)
+    assert "forbidden_call:socket.create_connection" in {
+        finding.code for finding in injected_findings
+    }
+    monkeypatch.setattr(
+        phase2_module,
+        "scan_task5_no_send",
+        lambda path: injected_findings,
+    )
+
+    report = validate_basic_phase2(ROOT, ARCHIVE)
+
+    assert report.passed is False
+    assert "no_send_violation" in report.error_codes
 
 
 def test_wrong_hash_fixture_proves_adoption_gate_red():
@@ -121,10 +239,28 @@ def test_receipt_records_the_exact_vertical_evidence(phase2_report):
         ),
     }
     assert payload["differential"]["counts"] == {
-        "expected_by_mapping": 0,
+        "expected_by_mapping": 1,
         "unmapped": 0,
         "contradiction": 0,
     }
+    assert payload["differential"]["differences"] == [
+        {
+            "path": "records[resident:test].values.ral.authority",
+            "classification": "expected_by_mapping",
+            "expected": {
+                "presence": "present",
+                "value": {
+                    "authority_ref": "authority:test:1",
+                    "authority_digest": (
+                        "sha256:sedb-ral-json-nfc-codepoint-v1:"
+                        "dab92e51e9799b4409c9de2b4a1132b07a35694dd5a8aff614e1babde83487d9"
+                    ),
+                },
+            },
+            "actual": {"presence": "missing"},
+            "rule_id": "authority",
+        }
+    ]
     assert payload["sedb_tests"] == {
         "selected_source": "own_execution",
         "package_claim": None,
@@ -150,6 +286,101 @@ def test_receipt_records_the_exact_vertical_evidence(phase2_report):
         "sedb-compatibility-receipt.schema.json",
         payload,
         ROOT / "src/sedb_ral/schemas",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("package.name", "attacker-sedb"),
+        ("package.version", "0.4.0b2"),
+        ("package.source_commit", "0" * 40),
+        (
+            "mapping_profile_digest",
+            "sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64,
+        ),
+    ],
+    ids=["package-name", "package-version", "source-commit", "mapping-digest"],
+)
+def test_v02_receipt_schema_binds_exact_adopted_profile_facts(
+    phase2_report, field, value
+):
+    payload = finalize_for_test(phase2_report).as_json()
+    if field.startswith("package."):
+        payload["package"][field.removeprefix("package.")] = value
+    else:
+        payload[field] = value
+
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        validate_contract(
+            "sedb-compatibility-receipt.schema.json",
+            payload,
+            ROOT / "src/sedb_ral/schemas",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("package.name", "attacker-sedb"),
+        ("package.version", "0.4.0b2"),
+        ("package.source_commit", "0" * 40),
+        (
+            "mapping_profile_digest",
+            "sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64,
+        ),
+    ],
+    ids=["package-name", "package-version", "source-commit", "mapping-digest"],
+)
+def test_writer_rejects_coherently_reidentified_profile_tampering(
+    phase2_report, tmp_path, field, value
+):
+    finalized = finalize_for_test(phase2_report)
+    if field.startswith("package."):
+        package = copy.deepcopy(finalized.package)
+        package[field.removeprefix("package.")] = value
+        tampered = replace(finalized, package=package)
+    else:
+        tampered = replace(finalized, **{field: value})
+    tampered = coherently_reidentify(tampered)
+
+    assert_write_rejected(
+        tampered, tmp_path, "sedb_profile_identity_mismatch"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("adoption_profile_id", "attacker-adoption"),
+        ("adoption_profile_version", "2"),
+        ("mapping_profile_id", "attacker-mapping"),
+        ("mapping_profile_version", "2"),
+        ("archive.filename", "SEDB-v0.4B-other.zip"),
+        ("archive.size", 8980053),
+        ("archive.sha256", "0" * 64),
+        ("manifest.path", "MANIFEST.other"),
+        ("manifest.expected_entry_count", 113),
+    ],
+)
+def test_writer_retains_existing_exact_profile_constants(
+    phase2_report, tmp_path, field, value
+):
+    finalized = finalize_for_test(phase2_report)
+    if field.startswith("archive."):
+        archive = copy.deepcopy(finalized.archive)
+        archive[field.removeprefix("archive.")] = value
+        tampered = replace(finalized, archive=archive)
+    elif field.startswith("manifest."):
+        manifest = copy.deepcopy(finalized.manifest)
+        manifest[field.removeprefix("manifest.")] = value
+        tampered = replace(finalized, manifest=manifest)
+    else:
+        tampered = replace(finalized, **{field: value})
+    tampered = coherently_reidentify(tampered)
+
+    assert_write_rejected(
+        tampered, tmp_path, "sedb_profile_identity_mismatch"
     )
 
 
@@ -385,6 +616,36 @@ def test_writer_rejects_contradiction_even_when_report_says_passed(
     )
 
 
+def test_writer_accepts_nonexact_diagnostics_when_allowed_differences_agree(
+    phase2_report, tmp_path
+):
+    integration = copy.deepcopy(phase2_report.integration)
+    integration["records_match"] = False
+    integration["exported_record_count"] += 1
+    differential = copy.deepcopy(phase2_report.differential)
+    differential["counts"]["unmapped"] += 1
+    differential["differences"].append(
+        {
+            "path": "records[resident:test].values.sedb_unmapped.future",
+            "classification": "unmapped",
+            "expected": {"presence": "missing"},
+            "actual": {"presence": "present", "value": "future"},
+            "rule_id": None,
+        }
+    )
+    finalized = finalize_for_test(
+        replace(
+            phase2_report,
+            integration=integration,
+            differential=differential,
+        )
+    )
+    destination = tmp_path / "VALIDATION_BASIC_PHASE2.json"
+
+    assert write_basic_phase2_receipt(finalized, destination) == destination
+    assert destination.is_file()
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [("executed", False), ("observed_code", "fault_not_detected")],
@@ -420,24 +681,14 @@ def test_writer_rejects_failed_phase_report(
     assert_write_rejected(finalized, tmp_path, error_code)
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "error_code"),
-    [
-        ("database_integrity", "corrupt", "sedb_integrity_failed"),
-        ("records_match", False, "sedb_records_mismatch"),
-        ("exported_record_count", 2, "sedb_record_count_mismatch"),
-    ],
-)
-def test_writer_rejects_failed_or_inconsistent_integration(
-    phase2_report, tmp_path, field, value, error_code
-):
+def test_writer_rejects_failed_database_integrity(phase2_report, tmp_path):
     integration = copy.deepcopy(phase2_report.integration)
-    integration[field] = value
+    integration["database_integrity"] = "corrupt"
     finalized = finalize_for_test(
         replace(phase2_report, integration=integration)
     )
 
-    assert_write_rejected(finalized, tmp_path, error_code)
+    assert_write_rejected(finalized, tmp_path, "sedb_integrity_failed")
 
 
 def test_writer_rejects_report_errors_before_writing(phase2_report, tmp_path):
@@ -468,6 +719,20 @@ def test_writer_requires_exact_three_differential_count_keys(
 ):
     differential = copy.deepcopy(phase2_report.differential)
     differential["counts"]["future_class"] = 0
+    finalized = finalize_for_test(
+        replace(phase2_report, differential=differential)
+    )
+
+    assert_write_rejected(
+        finalized, tmp_path, "sedb_differential_invalid"
+    )
+
+
+def test_writer_rejects_differential_count_list_mismatch(
+    phase2_report, tmp_path
+):
+    differential = copy.deepcopy(phase2_report.differential)
+    differential["counts"]["expected_by_mapping"] += 1
     finalized = finalize_for_test(
         replace(phase2_report, differential=differential)
     )

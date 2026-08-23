@@ -154,6 +154,7 @@ def test_unsafe_member_path_is_rejected_without_writing_outside(
     tmp_path, unsafe_name
 ):
     archive = tmp_path / "unsafe.zip"
+    outside_path = tmp_path / "escape.py"
     info = zipfile.ZipInfo(unsafe_name)
     write_package_with_extra_info(archive, info)
 
@@ -164,7 +165,7 @@ def test_unsafe_member_path_is_rejected_without_writing_outside(
     with pytest.raises(ValueError, match="archive_path_unsafe"):
         extract_verified_sedb(archive, archive_profile(archive), target)
     assert not target.exists()
-    assert not (tmp_path.parent / "escape.py").exists()
+    assert not outside_path.exists()
 
 
 def test_duplicate_member_name_is_rejected(tmp_path):

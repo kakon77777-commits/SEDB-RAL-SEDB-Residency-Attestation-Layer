@@ -14,13 +14,16 @@ from types import ModuleType
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .contracts import validate_contract
 from .errors import RALValidationError
-from .no_send import scan_no_send
+from .no_send import scan_no_send, scan_task5_no_send
 from .phase1a import validate_phase1a
 from .phase1bc import _sample_events, validate_phase1bc
 from .projection import project_events
 from .sedb_adoption import SEDBAdoptionInspection, inspect_sedb_archive
 from .sedb_diff import SEDBDiffReport, compare_sedb_projection
-from .sedb_mapping import project_to_sedb_records
+from .sedb_mapping import (
+    project_to_sedb_comparison_records,
+    project_to_sedb_records,
+)
 
 
 _DIFF_CLASSES = (
@@ -58,6 +61,23 @@ _INHERITED_SEDB_TESTS = {
         "inherited_from": _TASK5_REPORT,
     },
 }
+_PINNED_ADOPTION_PROFILE = ("sedb-v0.4b-adoption", "1")
+_PINNED_MAPPING_PROFILE = ("sedb-v0.4b-mapping", "1")
+_PINNED_ARCHIVE = {
+    "filename": "SEDB-v0.4B-local.zip",
+    "size": 8980052,
+    "sha256": "159F0928415811A434E885D50E94846266474725723D25DAC426170874B844D8",
+}
+_PINNED_MANIFEST = ("MANIFEST.sha256", 114)
+_PINNED_PACKAGE = {
+    "name": "sedb-local",
+    "version": "0.4.0b1",
+    "source_commit": "139b9952bb283b2e95f7690d76e3c5fbcdc680aa",
+}
+_PINNED_MAPPING_PROFILE_DIGEST = (
+    "sha256:sedb-ral-json-nfc-codepoint-v1:"
+    "07d67d5135b97ba8a9521e3f6c33a6897e64ec65422a02cabea6cb0c398d9ef5"
+)
 
 
 @dataclass(frozen=True)
@@ -603,7 +623,10 @@ def validate_basic_phase2(
         if not phase1bc.passed:
             errors.append("phase1bc_gate_failed")
 
-        no_send_findings = scan_no_send(root_path / "src/sedb_ral")
+        no_send_findings = (
+            *scan_no_send(root_path / "src/sedb_ral"),
+            *scan_task5_no_send(root_path / "scripts/validate_sedb_v04b.py"),
+        )
         if no_send_findings:
             errors.append("no_send_violation")
 
@@ -624,6 +647,9 @@ def validate_basic_phase2(
             expected_records = project_to_sedb_records(
                 projection, mapping_profile
             )
+            comparison_expected_records = project_to_sedb_comparison_records(
+                projection, mapping_profile
+            )
             integration = _run_task5_integration(
                 root_path,
                 archive_path,
@@ -633,14 +659,11 @@ def validate_basic_phase2(
                 temporary,
             )
             integration_payload = _integration_payload(integration)
-            if (
-                integration_payload["database_integrity"] != "ok"
-                or integration_payload["records_match"] is not True
-            ):
+            if integration_payload["database_integrity"] != "ok":
                 errors.append("sedb_integration_failed")
 
             differential: SEDBDiffReport = compare_sedb_projection(
-                expected_records,
+                comparison_expected_records,
                 getattr(integration, "exported_records"),
                 mapping_profile,
             )
@@ -763,6 +786,26 @@ def _validate_final_receipt_semantics(report: Phase2Report) -> None:
     ):
         _semantic_error("phase1bc_gate_failed", "Phase 1B/1C did not pass")
 
+    profile_facts_match = (
+        (report.adoption_profile_id, report.adoption_profile_version)
+        == _PINNED_ADOPTION_PROFILE
+        and (report.mapping_profile_id, report.mapping_profile_version)
+        == _PINNED_MAPPING_PROFILE
+        and report.archive == _PINNED_ARCHIVE
+        and (
+            report.manifest.get("path"),
+            report.manifest.get("expected_entry_count"),
+        )
+        == _PINNED_MANIFEST
+        and report.package == _PINNED_PACKAGE
+        and report.mapping_profile_digest == _PINNED_MAPPING_PROFILE_DIGEST
+    )
+    if not profile_facts_match:
+        _semantic_error(
+            "sedb_profile_identity_mismatch",
+            "adoption or mapping profile facts differ from the adopted constants",
+        )
+
     if (
         report.manifest.get("verified") is not True
         or report.manifest.get("expected_entry_count")
@@ -784,21 +827,33 @@ def _validate_final_receipt_semantics(report: Phase2Report) -> None:
         _semantic_error("sedb_integration_missing", "integration is required")
     if integration.get("database_integrity") != "ok":
         _semantic_error("sedb_integrity_failed", "database integrity is not ok")
-    if integration.get("records_match") is not True:
-        _semantic_error("sedb_records_mismatch", "SEDB records do not match")
-    if integration.get("expected_record_count") != integration.get(
-        "exported_record_count"
-    ):
-        _semantic_error(
-            "sedb_record_count_mismatch", "expected/exported counts differ"
-        )
 
     differential = report.differential
     counts = differential.get("counts")
+    differences = differential.get("differences")
+    observed_counts = {name: 0 for name in _DIFF_CLASSES}
+    differences_valid = isinstance(differences, list)
+    if differences_valid:
+        for difference in differences:
+            if not isinstance(difference, Mapping):
+                differences_valid = False
+                break
+            classification = difference.get("classification")
+            if classification not in observed_counts:
+                differences_valid = False
+                break
+            assert isinstance(classification, str)
+            observed_counts[classification] += 1
     if (
         differential.get("passed") is not True
         or not isinstance(counts, Mapping)
         or set(counts) != set(_DIFF_CLASSES)
+        or any(
+            type(counts.get(name)) is not int or counts[name] < 0
+            for name in _DIFF_CLASSES
+        )
+        or not differences_valid
+        or dict(counts) != observed_counts
         or counts.get("contradiction") != 0
     ):
         _semantic_error(

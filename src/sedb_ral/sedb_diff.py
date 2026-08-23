@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from .canonical import canonical_bytes
 from .sedb_mapping import validate_sedb_mapping
 
 
@@ -77,7 +78,27 @@ def _difference(
 def _presence_envelope(value: object) -> dict[str, object]:
     if value is MISSING:
         return {"presence": "missing"}
-    return {"presence": "present", "value": value}
+    return {"presence": "present", "value": _diagnostic_value(value)}
+
+
+def _diagnostic_value(value: object) -> object:
+    if isinstance(value, (set, frozenset)):
+        items = [_diagnostic_value(item) for item in value]
+        items.sort(key=canonical_bytes)
+        return {
+            "diagnostic_collection": type(value).__name__,
+            "items": items,
+        }
+    if isinstance(value, tuple):
+        return {
+            "diagnostic_collection": "tuple",
+            "items": [_diagnostic_value(item) for item in value],
+        }
+    if isinstance(value, list):
+        return [_diagnostic_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _diagnostic_value(item) for key, item in value.items()}
+    return value
 
 
 def _all_rules(mapping: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
