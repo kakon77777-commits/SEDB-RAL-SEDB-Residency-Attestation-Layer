@@ -8,13 +8,14 @@ instances, continuity lines, identifiers, addresses, claims, observations,
 attestations, authority, and delivery state without collapsing those concepts
 into one overloaded identity field.
 
-The project now contains the executable **Phase 1A deterministic core**. It
-validates strict canonical JSON, CTCL receipts, identifier-discrimination
-fixtures, and a checkpoint-backed append-only file ledger. It remains a
-read-only validation core: later admission, adapter, projection, registrar, and
-federation phases are separate.
+The project now contains the reviewed executable **Basic Phase 1** checkpoint:
+Phase 1A deterministic foundations, Phase 1B admission and explanation, and
+Phase 1C read-only delivery evidence. It validates strict canonical JSON, CTCL
+receipts, identifier-discrimination fixtures, authority-gated resident
+applications, an append-only file ledger, deterministic projections, and
+captured transport evidence without adding message-send capability.
 
-## Install and verify Phase 1A
+## Install and verify Basic Phase 1
 
 Python 3.11 or newer is required.
 
@@ -22,7 +23,9 @@ Python 3.11 or newer is required.
 python -m pip install -e ".[test]"
 python -m pytest -q
 python scripts/validate_phase1a.py
+python scripts/validate_phase1bc.py
 sedb-ral phase1a verify .
+sedb-ral phase1bc verify .
 ```
 
 For byte-reproducible wheel and sdist artifacts, use the pinned release epoch
@@ -51,6 +54,11 @@ sedb-ral contract validate CONTRACT FILE
 sedb-ral identifier check FILE
 sedb-ral ledger verify ROOT --expected-final-chain-digest DIGEST
 sedb-ral phase1a verify ROOT
+sedb-ral application check APPLICATION_FILE
+sedb-ral project rebuild EVENTS_JSON
+sedb-ral explain claim EVENTS_JSON CLAIM_ID
+sedb-ral diagnose delivery ADAPTER_OBSERVATION_JSON
+sedb-ral phase1bc verify ROOT
 ```
 
 Exit codes are semantic:
@@ -90,17 +98,38 @@ fixtures/identifier/mixed_population  indeterminate control and exact manifest
 fixtures/ledger/               deterministic event drafts
 ```
 
-## Phase 1A exclusions
+## Basic Phase 1 capabilities
 
-- No SQLite projection.
+- Authority-gated self-application with exact resident-reference and scope
+  checks.
+- Canonical authority grant snapshots, digest binding, append-only revocation,
+  and commit-time revalidation.
+- Deterministic resident/application JSON and disposable SQLite projections;
+  the file ledger remains canonical.
+- Categorical attestation and scope-specific, machine-evaluable evidence
+  sufficiency.
+- Append-only corrections, withdrawals, and tombstones with exact target and
+  replacement provenance.
+- Bound transcript speaker labels with transcript-scoped visual cues and
+  explicit relay provenance.
+- A machine-consumed 29-row incident corpus and route-scoped adapter matrix.
+- Sanitized Codex queue observations, exact delivery reconstruction, and
+  tri-state route diagnostics.
+- An AST gate that rejects send/process/network capability and package-level
+  SEDB imports from `src/sedb_ral`.
+
+## Basic Phase 1 exclusions
+
 - No transport send.
 - No registrar.
-- No full incident corpus.
+- No automatic resident, instance, or continuity merge.
+- No live-provider read as a prerequisite for core validation.
 - No SEDB canonical mutation.
-- No resident-level continuity claim.
+- No SEDB Phase 2 compatibility profile yet.
 
-Generated databases, projections, transports, application admission, authority
-envelopes, and the rich speaker-color renderer begin in later phases.
+Generated JSON and SQLite views are rebuildable outputs, never canonical
+authority. Transport execution, registrar/federation behavior, identity merge,
+and SEDB adoption remain later phases.
 
 ## Core boundary
 
