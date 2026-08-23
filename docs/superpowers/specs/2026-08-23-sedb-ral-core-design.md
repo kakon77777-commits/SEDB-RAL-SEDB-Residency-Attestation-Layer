@@ -132,10 +132,27 @@ semantic purpose and reject unknown properties at stable boundaries.
 
 ### 6.2 Canonicalizer
 
-The canonicalizer produces UTF-8, NFC-normalized, sorted-key, compact JSON with
-an explicit canonicalization version. Hashes are over bytes, never over text
-silently re-encoded after newline normalization. Source expressions must state
-whether they measure physical bytes, decoded text, or a canonical projection.
+The Phase 1A canonicalization version is
+`sedb-ral-json-nfc-codepoint-v1`: UTF-8, NFC-normalized, Unicode code-point key
+order, compact JSON, no BOM/CR/trailing newline, and no floating-point values.
+This is explicitly not RFC 8785 JCS, whose object-key order uses UTF-16 code
+units and differs for some non-BMP keys.
+
+Digest references bind the version through domain separation:
+
+```text
+SHA256(
+  b"SEDB-RAL-CANONICAL\0"
+  + b"sedb-ral-json-nfc-codepoint-v1\0"
+  + canonical_bytes
+)
+```
+
+The serialized reference is
+`sha256:sedb-ral-json-nfc-codepoint-v1:<lowercase hex>`. Hashes are over bytes,
+never over text silently re-encoded after newline normalization. Source
+expressions must state whether they measure physical bytes, decoded text, or a
+canonical projection.
 
 ### 6.3 Admission engine
 
@@ -150,6 +167,15 @@ Each immutable event is stored as one canonical JSON file. Events carry a
 sequence within a ledger, causal parent IDs, a record digest, and a chain
 digest. Corrections and withdrawals append new events; they do not rewrite the
 event being corrected.
+
+Phase 1A distinguishes `empty`, `internally_consistent`,
+`checkpoint_verified`, and `invalid`. Internal consistency alone cannot detect
+paired tail deletion or total local erasure. A positive `valid` result therefore
+requires an independently retained expected head digest; without one, a
+non-empty chain is only `internally_consistent`. Append callers explicitly
+declare either genesis (`expected_previous_chain_digest = null`) or the
+externally retained previous head. This makes a reset an explicit claim instead
+of silently treating an erased directory as a verified ledger.
 
 ### 6.5 Projector
 
@@ -234,6 +260,26 @@ runtime tag, role, pane, or another shared value; choosing among those requires
 a separate namespace contract. Such a value cannot be promoted to a
 resident-unique address from that observation alone.
 
+The Phase 1A fixture embeds an `identifier_exemplar`, not a canonical admitted
+identifier instance. Each observation repeats the exemplar's namespace and
+identifier kind; the exemplar value must occur in the observations. Observation
+IDs are unique, and one `instance_ref` may bind only one claimed resident and
+one claimed runtime inside a fixture. Conclusive within-resident instability or
+cross-resident collision rejects before sample-sufficiency checks. Admission
+requires a same-runtime cohort with at least two residents and the declared
+number of instances per resident.
+
+The gate evaluates the canonical NFC projection of the complete fixture.
+Canonical-equivalent values and topology references therefore cannot appear
+distinct merely because one input uses composed Unicode and another uses a
+decomposed sequence.
+
+`resident_ref`, `instance_ref`, and `runtime_ref` remain applicant-claimed
+topology in Phase 1A. Consequently, an `admit` result means only that the value
+discriminates the claimed residents under the claimed runtime grouping. It is
+not receiver-observed identity proof, and no claimed topology field is promoted
+to canonical evidence by this gate.
+
 ### 7.6 Binding
 
 A binding relates a subject to a role, pane, runtime, model, project, address,
@@ -262,6 +308,28 @@ When the available error surface cannot distinguish two or more candidate
 codes, the record uses `address_failure_indeterminate`, includes
 `candidate_codes`, and preserves the observation that failed to separate them.
 Selecting one code only for tidiness fabricates evidence.
+
+### 7.8 Transcript binding and speaker presentation
+
+A multi-party transcript binds each readable `speaker_id` variable to a full
+identifier and an explicit `identifier_kind` before the label is used. The
+binding is transcript-scoped; names and short codes are not addresses outside
+that scope. Session/thread-level labels expire and rebind explicitly when the
+instance changes. Cross-session resident continuity cannot be inferred from a
+reused label.
+
+Every authored turn starts with `{speaker_id}:`. That prefix is display, not
+authorship evidence. Canonical resident, instance, continuity-line,
+thread/session, relay, claimed-authorship, verified-authorship, and
+observed-origin records remain separate.
+
+A Phase 1B rich renderer may place an independent color swatch beside the bound
+label. The binding stores `visual_token`, `visual_scope = transcript`, and a
+measurable `palette_version` contract. Color never participates in routing,
+authority, authorship, continuity, discontinuity, identity merge, or evidence
+sufficiency. Plain-text turns omit color tokens and retain only the bound text
+label; a text export may mention the visual token only inside its binding
+metadata. Decision 0004 defines palette verification and relay behavior.
 
 ## 8. Claim, observation, and attestation
 
@@ -761,6 +829,8 @@ reviewed integration unit contains the contract and the gate together.
 - authority-envelope checks;
 - resident/instance/line/address models;
 - claim/observation/attestation explanation;
+- transcript-binding contract and rich speaker renderer with redundant,
+  transcript-scoped visual cues;
 - correction, withdrawal, and tombstone events;
 - normalized incident JSONL with derived counts and explicit retrospective
   timestamp status;

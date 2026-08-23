@@ -1,0 +1,71 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "fixture:identifier:resident-address:positive:v1",
+  "identifier_exemplar": {
+    "schema_version": "0.1",
+    "identifier_id": "id:resident-address:v1",
+    "namespace": "agent",
+    "value": "agent://example/resident/alice",
+    "subject_kind": "resident",
+    "identifier_kind": "resident_address",
+    "uniqueness_scope": "namespace",
+    "changes_when": [
+      "resident_address_rotated"
+    ],
+    "is_routable_address": true,
+    "attestation_refs": [
+      "attestation:fixture:resident-address"
+    ]
+  },
+  "discrimination_target": "resident",
+  "required_instances_per_resident": 2,
+  "observations": [
+    {
+      "observation_id": "observation:positive:alice:1",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
+      "resident_ref": "resident:alice",
+      "instance_ref": "instance:alice:1",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/alice"
+    },
+    {
+      "observation_id": "observation:positive:alice:2",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
+      "resident_ref": "resident:alice",
+      "instance_ref": "instance:alice:2",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/alice"
+    },
+    {
+      "observation_id": "observation:positive:bob:1",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
+      "resident_ref": "resident:bob",
+      "instance_ref": "instance:bob:1",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/bob"
+    },
+    {
+      "observation_id": "observation:positive:bob:2",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
+      "resident_ref": "resident:bob",
+      "instance_ref": "instance:bob:2",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/bob"
+    }
+  ],
+  "expected_decision": "admit",
+  "expected_reason_codes": [
+    "admissible_resident_discriminator"
+  ],
+  "temporal_evidence": {
+    "temporal_capture_mode": "synthetic_fixture",
+    "retro_stamped": false,
+    "basis_refs": [
+      "spec:identifier-discrimination-positive-population"
+    ]
+  }
+}

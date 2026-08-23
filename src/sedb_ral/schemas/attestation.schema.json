@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/attestation.schema.json",
+  "title": "SEDB-RAL Attestation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "attestation_id",
+    "claim_ref",
+    "evidence_basis",
+    "verification_status",
+    "record_status",
+    "observer_independence_status",
+    "evidence_independence_status",
+    "independence_scope",
+    "evidence_root_refs",
+    "derivation_parent_refs",
+    "evidence_refs",
+    "scope",
+    "temporal_validity",
+    "not_claimed"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "attestation_id": {"type": "string", "minLength": 1},
+    "claim_ref": {"type": "string", "minLength": 1},
+    "evidence_basis": {
+      "enum": [
+        "peer_assertion",
+        "filesystem_observation",
+        "own_execution",
+        "peer_transcript_observation"
+      ]
+    },
+    "verification_status": {
+      "enum": ["unverified", "verified", "contradicted", "indeterminate"]
+    },
+    "record_status": {"enum": ["active", "withdrawn", "superseded"]},
+    "observer_independence_status": {
+      "enum": ["independent", "shared_observer", "indeterminate", "unmeasured"]
+    },
+    "evidence_independence_status": {
+      "enum": ["independent", "shared_root", "indeterminate", "unmeasured"]
+    },
+    "independence_scope": {"type": "string", "minLength": 1},
+    "evidence_root_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "derivation_parent_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "temporal_validity": {
+      "enum": ["valid", "expired", "indeterminate", "unmeasured"]
+    },
+    "not_claimed": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_independence_status": {"const": "shared_root"}
+        },
+        "required": ["evidence_independence_status"]
+      },
+      "then": {"properties": {"evidence_root_refs": {"minItems": 1}}}
+    }
+  ]
+}

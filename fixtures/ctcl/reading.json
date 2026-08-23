@@ -1,0 +1,43 @@
+{
+  "schema_version": "0.1",
+  "ctcl_instant_id": "ctcl:instant:ab1bdb6c-6ac7-4e73-8dd8-686652ac4264",
+  "ctcl_call_kind": "reading",
+  "reference": {
+    "timescale": "utc",
+    "value": "2026-08-23T07:37:14.866Z"
+  },
+  "encodings": {
+    "unix_s": "1787470634.866",
+    "unix_ms": "1787470634866",
+    "unix_us": "1787470634866000",
+    "unix_ns": "1787470634866000000",
+    "rfc3339": "2026-08-23T07:37:14.866Z"
+  },
+  "source": {
+    "class": "edge_wall_clock",
+    "protocol": "cloudflare-edge",
+    "provider": "cloudflare",
+    "sync_status": "synchronized"
+  },
+  "quality": {
+    "precision": "millisecond_representation",
+    "estimated_uncertainty_ns": 5000000,
+    "synchronized": true,
+    "note": "ns/us fields are zero-padded from a millisecond source; precision is not accuracy"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "WdE2Hrgu7vhAM+yCJZBBNyN+yvbFeAId7ywjgQZHiUJlbBYnTxnayQtIFVAeuLFo4kdpVpLSQLMHg4wLn1JbDQ==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrievability": {
+    "expected": false,
+    "status": "not_applicable",
+    "checked_at_ref": null,
+    "retrieval_evidence_ref": null
+  },
+  "service_returned_share_url": null
+}

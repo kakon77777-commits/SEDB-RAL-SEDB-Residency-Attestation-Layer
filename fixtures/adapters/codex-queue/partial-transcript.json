@@ -1,0 +1,24 @@
+{
+  "adapter_kind": "codex_queue",
+  "addressed_instance_ref": "instance:recipient:0d7ccdd2-1adb-4c49-8e69-648a67ec28b9",
+  "delivery_id": "delivery:codex-queue:0001",
+  "message_digest": "sha256:captured:message-0001",
+  "queue": {
+    "captured_at_ms": 0,
+    "exit_code": 0,
+    "observed_time_ref": "ctcl:instant:3634f90c-e2a6-4f47-af4a-a005ab0ac7d3",
+    "queue_id": "queue:53941332-b1dc-4494-8e5c-5e3d8f65a1cf"
+  },
+  "schema_version": "0.1",
+  "session_file": null,
+  "target_thread_id": "019fe51e-9276-7f63-8c16-414624b7fa9d",
+  "transcript": {
+    "acknowledged_instance_ref": "instance:recipient:0d7ccdd2-1adb-4c49-8e69-648a67ec28b9",
+    "captured_at_ms": 660000,
+    "completeness": "partial",
+    "message_digest": "sha256:captured:message-0001",
+    "observed_time_ref": "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+    "presented_instance_ref": "instance:recipient:0d7ccdd2-1adb-4c49-8e69-648a67ec28b9",
+    "thread_id": "019fe51e-9276-7f63-8c16-414624b7fa9d"
+  }
+}

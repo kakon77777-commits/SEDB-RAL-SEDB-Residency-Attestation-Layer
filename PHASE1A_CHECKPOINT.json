@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "project": "SEDB-RAL",
+  "phase": "1A",
+  "checkpoint_commit": "99efef01858993274de2c66bd53073f4a794946e",
+  "manifest_entries": 51,
+  "manifest_sha256": "4f748091331a1444a0b10439686a9525c626ed817da91d97bf3c7fdcca3bb985",
+  "validation_record_sha256": "9feba288564dc04f3bf7ce2529668910031d00b114939f47c7cda070e66d6187",
+  "validation_ctcl_ref": "ctcl:instant:e41ccac2-e4e5-41ac-aecb-207b8f2e46ba",
+  "validation": "passed",
+  "boundary": "This record was added after the checkpoint commit. SHA256SUMS.txt is verified against that immutable Git tree, not against later working-tree files."
+}

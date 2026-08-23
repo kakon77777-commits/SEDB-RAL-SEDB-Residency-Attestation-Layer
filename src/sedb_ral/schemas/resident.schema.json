@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/resident.schema.json",
+  "title": "SEDB-RAL Resident v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "resident_id", "display_label", "status", "application_ref", "identifier_refs"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "resident_id": {"type": "string", "minLength": 1},
+    "display_label": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "suspended", "withdrawn", "tombstoned"]},
+    "application_ref": {"type": "string", "minLength": 1},
+    "identifier_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

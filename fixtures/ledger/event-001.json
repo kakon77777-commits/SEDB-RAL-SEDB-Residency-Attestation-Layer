@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "event_id": "evt_001",
+  "ledger_id": "ledger:test",
+  "event_type": "identifier.observed",
+  "causal_parent_ids": [],
+  "recorded_time_ref": "ctcl:instant:5a76bd1b-2db2-463b-b2ad-0b1307102710",
+  "recorded_time": "2026-08-23T08:09:39.165Z",
+  "payload": {
+    "identifier_id": "id:test"
+  }
+}

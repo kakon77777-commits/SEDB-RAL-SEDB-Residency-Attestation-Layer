@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/claim.schema.json",
+  "title": "SEDB-RAL Claim v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "claim_id", "claimant_ref", "subject_ref", "predicate", "object", "claimed_time", "claimed_authored_by_instance", "claimed_on_behalf_of_line"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "claim_id": {"type": "string", "minLength": 1},
+    "claimant_ref": {"type": "string", "minLength": 1},
+    "subject_ref": {"type": "string", "minLength": 1},
+    "predicate": {"type": "string", "minLength": 1},
+    "object": {},
+    "claimed_time": {"type": ["string", "null"]},
+    "claimed_authored_by_instance": {"type": ["string", "null"]},
+    "claimed_on_behalf_of_line": {"type": ["string", "null"]}
+  }
+}

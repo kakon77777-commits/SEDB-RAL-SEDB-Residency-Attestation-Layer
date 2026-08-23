@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/correction-tombstone.schema.json",
+  "title": "SEDB-RAL Correction or Tombstone v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "correction_id", "target_event_id", "action", "replacement_ref", "reason"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "correction_id": {"type": "string", "minLength": 1},
+    "target_event_id": {"type": "string", "minLength": 1},
+    "action": {"enum": ["correct", "withdraw", "tombstone"]},
+    "replacement_ref": {"type": ["string", "null"]},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"action": {"const": "correct"}}, "required": ["action"]},
+      "then": {"properties": {"replacement_ref": {"type": "string", "minLength": 1}}}
+    }
+  ]
+}

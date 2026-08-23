@@ -1,0 +1,13 @@
+{
+  "schema_version": "0.1",
+  "fixture_paths": [
+    "positive/resident-address.json",
+    "negative/shared-runtime-tag.json",
+    "mixed_population/one-resident.json"
+  ],
+  "required_decisions": [
+    "admit",
+    "reject",
+    "indeterminate"
+  ]
+}

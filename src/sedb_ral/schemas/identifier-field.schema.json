@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/identifier-field.schema.json",
+  "title": "SEDB-RAL Identifier Field v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identifier_id",
+    "namespace",
+    "value",
+    "subject_kind",
+    "identifier_kind",
+    "uniqueness_scope",
+    "changes_when",
+    "is_routable_address",
+    "attestation_refs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "identifier_id": {
+      "type": "string",
+      "pattern": "^id:[A-Za-z0-9._:/-]+$"
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_kind": {
+      "enum": [
+        "resident",
+        "instance",
+        "line",
+        "runtime",
+        "binding",
+        "address"
+      ]
+    },
+    "identifier_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "uniqueness_scope": {
+      "enum": [
+        "namespace",
+        "namespace_and_validity_interval",
+        "none"
+      ]
+    },
+    "changes_when": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "is_routable_address": {
+      "type": "boolean"
+    },
+    "attestation_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

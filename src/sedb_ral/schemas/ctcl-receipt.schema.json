@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/ctcl-receipt-v0.1.json",
+  "title": "SEDB-RAL CTCL Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ctcl_instant_id",
+    "ctcl_call_kind",
+    "reference",
+    "encodings",
+    "source",
+    "quality",
+    "signature",
+    "retrievability",
+    "service_returned_share_url"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "ctcl_instant_id": {
+      "type": "string",
+      "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ctcl_call_kind": {
+      "enum": [
+        "reading",
+        "registered_anchor"
+      ]
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timescale",
+        "value"
+      ],
+      "properties": {
+        "timescale": {
+          "const": "utc"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$"
+        }
+      }
+    },
+    "encodings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unix_s",
+        "unix_ms",
+        "unix_us",
+        "unix_ns",
+        "rfc3339"
+      ],
+      "properties": {
+        "unix_s": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "unix_ms": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "unix_us": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "unix_ns": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "rfc3339": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "protocol",
+        "provider",
+        "sync_status"
+      ],
+      "properties": {
+        "class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sync_status": {
+          "enum": [
+            "synchronized",
+            "unsynchronized",
+            "unreported",
+            null
+          ]
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "precision",
+        "estimated_uncertainty_ns",
+        "synchronized",
+        "note"
+      ],
+      "properties": {
+        "precision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "estimated_uncertainty_ns": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "synchronized": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alg",
+        "key_id",
+        "signed_fields",
+        "value",
+        "verify_endpoint",
+        "verification_status"
+      ],
+      "properties": {
+        "alg": {
+          "const": "Ed25519"
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signed_fields": {
+          "const": "instant_id|unix_ns|timescale"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verify_endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification_status": {
+          "enum": [
+            "not_performed",
+            "verified",
+            "failed"
+          ]
+        }
+      }
+    },
+    "retrievability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "status",
+        "checked_at_ref",
+        "retrieval_evidence_ref"
+      ],
+      "properties": {
+        "expected": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "not_applicable",
+            "unverified",
+            "verified",
+            "unknown_instant",
+            "unavailable"
+          ]
+        },
+        "checked_at_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieval_evidence_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "service_returned_share_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

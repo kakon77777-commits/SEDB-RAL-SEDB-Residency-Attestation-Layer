@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/ledger-event.schema.json",
+  "title": "SEDB-RAL Ledger Event v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "ledger_id",
+    "event_type",
+    "causal_parent_ids",
+    "recorded_time_ref",
+    "recorded_time",
+    "payload",
+    "ledger_seq",
+    "integrity"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^evt_[A-Za-z0-9._-]+$"
+    },
+    "ledger_id": {
+      "type": "string",
+      "pattern": "^ledger:[A-Za-z0-9._:/-]+$"
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "causal_parent_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^evt_[A-Za-z0-9._-]+$"
+      }
+    },
+    "recorded_time_ref": {
+      "type": "string",
+      "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "recorded_time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "ledger_seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalization_version",
+        "chain_version",
+        "record_digest",
+        "previous_chain_digest",
+        "chain_digest"
+      ],
+      "properties": {
+        "canonicalization_version": {
+          "const": "sedb-ral-json-nfc-codepoint-v1"
+        },
+        "chain_version": {
+          "const": "sedb-ral-chain-v1"
+        },
+        "record_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "previous_chain_digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:sedb-ral-chain-v1:[0-9a-f]{64}$"
+        },
+        "chain_digest": {
+          "type": "string",
+          "pattern": "^sha256:sedb-ral-chain-v1:[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ledger_seq": {
+            "const": 1
+          }
+        },
+        "required": [
+          "ledger_seq"
+        ]
+      },
+      "then": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "previous_chain_digest": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "previous_chain_digest": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

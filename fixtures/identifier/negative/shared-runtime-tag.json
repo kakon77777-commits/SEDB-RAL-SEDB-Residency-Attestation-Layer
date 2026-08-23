@@ -1,0 +1,71 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "fixture:identifier:shared-runtime-tag:negative:v1",
+  "identifier_exemplar": {
+    "schema_version": "0.1",
+    "identifier_id": "id:claimed-resident-address:shared-runtime:v1",
+    "namespace": "agent",
+    "value": "agent://evemisslab/residence/claude-code",
+    "subject_kind": "resident",
+    "identifier_kind": "claimed_resident_address",
+    "uniqueness_scope": "namespace",
+    "changes_when": [
+      "runtime_shell_changed"
+    ],
+    "is_routable_address": false,
+    "attestation_refs": [
+      "attestation:incident:shared-runtime-tag"
+    ]
+  },
+  "discrimination_target": "resident",
+  "required_instances_per_resident": 2,
+  "observations": [
+    {
+      "observation_id": "observation:negative:resident-a:1",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
+      "resident_ref": "resident:measured:a",
+      "instance_ref": "instance:measured:a:1",
+      "runtime_ref": "runtime:claude-code:shared",
+      "observed_value": "agent://evemisslab/residence/claude-code"
+    },
+    {
+      "observation_id": "observation:negative:resident-a:2",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
+      "resident_ref": "resident:measured:a",
+      "instance_ref": "instance:measured:a:2",
+      "runtime_ref": "runtime:claude-code:shared",
+      "observed_value": "agent://evemisslab/residence/claude-code"
+    },
+    {
+      "observation_id": "observation:negative:resident-b:1",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
+      "resident_ref": "resident:measured:b",
+      "instance_ref": "instance:measured:b:1",
+      "runtime_ref": "runtime:claude-code:shared",
+      "observed_value": "agent://evemisslab/residence/claude-code"
+    },
+    {
+      "observation_id": "observation:negative:resident-b:2",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
+      "resident_ref": "resident:measured:b",
+      "instance_ref": "instance:measured:b:2",
+      "runtime_ref": "runtime:claude-code:shared",
+      "observed_value": "agent://evemisslab/residence/claude-code"
+    }
+  ],
+  "expected_decision": "reject",
+  "expected_reason_codes": [
+    "does_not_distinguish_residents"
+  ],
+  "temporal_evidence": {
+    "temporal_capture_mode": "retrospective",
+    "retro_stamped": true,
+    "basis_refs": [
+      "external-handoff:2026-08-23-plumb-incident-register-for-household-registry.md"
+    ]
+  }
+}

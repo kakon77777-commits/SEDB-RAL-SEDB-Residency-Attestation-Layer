@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/identifier-discrimination.schema.json",
+  "title": "SEDB-RAL Identifier Discrimination Fixture v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "identifier_exemplar",
+    "discrimination_target",
+    "required_instances_per_resident",
+    "observations",
+    "expected_decision",
+    "expected_reason_codes",
+    "temporal_evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "fixture_id": {
+      "type": "string",
+      "pattern": "^fixture:[A-Za-z0-9._:/-]+$"
+    },
+    "identifier_exemplar": {
+      "$ref": "identifier-field.schema.json"
+    },
+    "discrimination_target": {
+      "const": "resident"
+    },
+    "required_instances_per_resident": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observation_id",
+          "namespace",
+          "identifier_kind",
+          "resident_ref",
+          "instance_ref",
+          "runtime_ref",
+          "observed_value"
+        ],
+        "properties": {
+          "observation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1
+          },
+          "identifier_kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resident_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instance_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runtime_ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Phase 1A claimed runtime grouping; not receiver-observed identity evidence"
+          },
+          "observed_value": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "expected_decision": {
+      "enum": [
+        "admit",
+        "reject",
+        "indeterminate"
+      ]
+    },
+    "expected_reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "temporal_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "temporal_capture_mode",
+        "retro_stamped",
+        "basis_refs"
+      ],
+      "properties": {
+        "temporal_capture_mode": {
+          "enum": [
+            "contemporaneous",
+            "retrospective",
+            "synthetic_fixture"
+          ]
+        },
+        "retro_stamped": {
+          "type": "boolean"
+        },
+        "basis_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "temporal_capture_mode": {
+                "const": "retrospective"
+              }
+            },
+            "required": [
+              "temporal_capture_mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "retro_stamped": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "retro_stamped": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

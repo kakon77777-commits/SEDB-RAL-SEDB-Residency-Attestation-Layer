@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/adapter-observation.schema.json",
+  "title": "SEDB-RAL Sanitized Adapter Observation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "adapter_kind", "delivery_id", "addressed_instance_ref", "target_thread_id", "message_digest", "queue", "transcript", "session_file"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "adapter_kind": {"const": "codex_queue"},
+    "delivery_id": {"type": "string", "minLength": 1},
+    "addressed_instance_ref": {"type": "string", "minLength": 1},
+    "target_thread_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "message_digest": {"type": "string", "minLength": 1},
+    "queue": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["exit_code", "queue_id", "observed_time_ref", "captured_at_ms"],
+      "properties": {
+        "captured_at_ms": {"type": "integer", "minimum": 0},
+        "exit_code": {"type": "integer"},
+        "queue_id": {"type": "string", "minLength": 1},
+        "observed_time_ref": {"type": ["string", "null"]}
+      }
+    },
+    "transcript": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["completeness", "observed_time_ref", "captured_at_ms", "thread_id", "message_digest", "presented_instance_ref", "acknowledged_instance_ref"],
+      "properties": {
+        "captured_at_ms": {"type": "integer", "minimum": 0},
+        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured", "structurally_unavailable"]},
+        "observed_time_ref": {"type": ["string", "null"]},
+        "thread_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "message_digest": {"type": ["string", "null"]},
+        "presented_instance_ref": {"type": ["string", "null"]},
+        "acknowledged_instance_ref": {"type": ["string", "null"]},
+        "structural_unavailability_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"completeness": {"const": "structurally_unavailable"}}, "required": ["completeness"]},
+          "then": {"required": ["structural_unavailability_reason"]}
+        }
+      ]
+    },
+    "session_file": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["completeness", "observed_time_ref", "captured_at_ms"],
+      "properties": {
+        "captured_at_ms": {"type": "integer", "minimum": 0},
+        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured", "structurally_unavailable"]},
+        "observed_time_ref": {"type": ["string", "null"]},
+        "structural_unavailability_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"completeness": {"const": "structurally_unavailable"}}, "required": ["completeness"]},
+          "then": {"required": ["structural_unavailability_reason"]}
+        }
+      ]
+    }
+  }
+}

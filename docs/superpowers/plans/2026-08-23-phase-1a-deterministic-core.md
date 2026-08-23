@@ -35,6 +35,8 @@ setuptools build backend, UTF-8/LF files.
   floats are rejected and decimals travel as strings.
 - Canonical bytes are UTF-8, NFC-normalized, sorted-key, compact JSON with no
   BOM, CR, or trailing newline.
+- Canonicalization version is `sedb-ral-json-nfc-codepoint-v1`; key ordering is
+  Unicode code point and explicitly not RFC 8785 UTF-16/JCS ordering.
 - Repository JSON Schemas under `src/sedb_ral/schemas/` are the source of
   truth and package data. No second checked-in schema tree is allowed.
 - `ctcl_now` is a non-persisted `reading`; only `ctcl_register_instant` creates
@@ -253,7 +255,12 @@ git commit -m "build: bootstrap Phase 1A package"
 # tests/test_canonical.py
 import pytest
 
-from sedb_ral.canonical import canonical_bytes, loads_strict, sha256_ref
+from sedb_ral.canonical import (
+    CANONICALIZATION_VERSION,
+    canonical_bytes,
+    loads_strict,
+    sha256_ref,
+)
 from sedb_ral.errors import RALValidationError
 
 
@@ -261,8 +268,16 @@ def test_canonicalizes_key_order_and_unicode_nfc():
     value = {"b": "e\u0301", "a": 1}
     assert canonical_bytes(value) == '{"a":1,"b":"é"}'.encode("utf-8")
     assert sha256_ref(value) == (
-        "sha256:09ad9fd2fb648cb2f62141215828ea00"
-        "a62c299db05d20aa9ade2f527a301cc6"
+        "sha256:sedb-ral-json-nfc-codepoint-v1:"
+        "2f2886c6ce994ab63dbb009f227937e5"
+        "3ca18d074a8fac656dddd4ef61974ba1"
+    )
+
+
+def test_canonicalization_version_names_non_jcs_key_order():
+    assert CANONICALIZATION_VERSION == "sedb-ral-json-nfc-codepoint-v1"
+    assert canonical_bytes({"＀": 1, "😀": 2}) == (
+        '{"＀":1,"😀":2}'.encode("utf-8")
     )
 
 
@@ -327,6 +342,13 @@ from .errors import RALValidationError
 JsonScalar: TypeAlias = None | bool | int | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
+CANONICALIZATION_VERSION = "sedb-ral-json-nfc-codepoint-v1"
+_DIGEST_DOMAIN = (
+    b"SEDB-RAL-CANONICAL\x00"
+    + CANONICALIZATION_VERSION.encode("ascii")
+    + b"\x00"
+)
+
 
 def _pairs(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
     result: dict[str, JsonValue] = {}
@@ -386,7 +408,8 @@ def canonical_bytes(value: JsonValue) -> bytes:
 
 
 def sha256_ref(value: JsonValue) -> str:
-    return "sha256:" + hashlib.sha256(canonical_bytes(value)).hexdigest()
+    digest = hashlib.sha256(_DIGEST_DOMAIN + canonical_bytes(value)).hexdigest()
+    return f"sha256:{CANONICALIZATION_VERSION}:{digest}"
 ```
 
 - [ ] **Step 4: Run focused tests and verify exact-byte success**
@@ -397,7 +420,7 @@ Run:
 python -m pytest tests/test_canonical.py -q
 ```
 
-Expected: `5 passed`.
+Expected: `6 passed`.
 
 - [ ] **Step 5: Commit canonicalization**
 
@@ -727,6 +750,38 @@ git commit -m "feat: distinguish CTCL readings from anchors"
 
 ---
 
+### Tasks 4–6 review amendments (normative)
+
+The first implementation review found two pre-release contract defects. These
+amendments supersede older illustrative snippets in Tasks 4–6 wherever they
+conflict:
+
+- The fixture property is `identifier_exemplar`, not `identifier`. It is a
+  sample of the kind being tested, not an admitted registry instance.
+- Every observation also carries `namespace` and `identifier_kind`; both must
+  match the exemplar, and the exemplar value must occur in the observation set.
+- Observation IDs are unique. One `instance_ref` binds to one claimed resident
+  and one claimed runtime inside the fixture.
+- All grouping and comparison runs over the canonical NFC projection; raw
+  Unicode spelling cannot manufacture distinct residents, instances, or values.
+- Conclusive instability and cross-resident collision reject before positive
+  sample-sufficiency checks. Admission requires one same-runtime cohort with at
+  least two residents and the required number of instances per resident.
+- Phase 1A topology refs remain claimed input. An admit result is conditioned
+  on that claimed grouping and is not receiver-observed identity proof.
+- Ledger states are `empty`, `internally_consistent`,
+  `checkpoint_verified`, and `invalid`; `valid` is true only for
+  `checkpoint_verified` against a caller-supplied external head.
+- `append_event()` requires an explicit `expected_previous_chain_digest`;
+  `null` is an explicit genesis declaration. `verify_ledger()` accepts an
+  optional `expected_final_chain_digest`.
+- CLI input I/O, UTF-8, and JSON-syntax failures return canonical typed error
+  JSON with exit 1. Strict canonical-contract errors such as duplicate keys or
+  floats, schema errors, and admission rejection return canonical JSON with
+  exit 2.
+
+Decisions 0002 and 0003 record the rationale and evidence boundaries.
+
 ### Task 4: Define identifier and discrimination contracts
 
 **Files:**
@@ -770,7 +825,7 @@ def test_positive_fixture_matches_contract():
 
 def test_unknown_identifier_field_is_rejected():
     fixture = load_fixture("fixtures/identifier/positive/resident-address.json")
-    fixture["identifier"]["seat"] = "overloaded"
+    fixture["identifier_exemplar"]["seat"] = "overloaded"
     with pytest.raises(RALValidationError, match="schema_invalid"):
         validate_contract("identifier-discrimination.schema.json", fixture)
 
@@ -832,14 +887,14 @@ temporal_evidence.retro_stamped
 temporal_evidence.basis_refs[]
 ```
 
-Its `identifier` property uses the relative JSON Schema reference
+Its `identifier_exemplar` property uses the relative JSON Schema reference
 `"$ref": "identifier-field.schema.json"`. Both schemas have absolute `$id`
 values under `https://evemisslab.com/schemas/sedb-ral/`; Task 3's
 `referencing.Registry` resolves the reference from the same canonical schema
 directory.
 
-Each observation requires `observation_id`, `resident_ref`, `instance_ref`,
-`runtime_ref`, and `observed_value`.
+Each observation requires `observation_id`, `namespace`, `identifier_kind`,
+`resident_ref`, `instance_ref`, `runtime_ref`, and `observed_value`.
 
 Create exact cases:
 
@@ -945,7 +1000,7 @@ def test_subject_kind_must_match_discrimination_target():
     fixture = json.loads(
         (ROOT / "positive/resident-address.json").read_text(encoding="utf-8")
     )
-    fixture["identifier"]["subject_kind"] = "runtime"
+    fixture["identifier_exemplar"]["subject_kind"] = "runtime"
     result = evaluate_identifier_fixture(fixture)
     assert result.decision is DiscriminationDecision.REJECT
     assert result.reason_codes == ("identifier_subject_mismatch",)
@@ -991,7 +1046,7 @@ class DiscriminationResult:
 
 def evaluate_identifier_fixture(value: Mapping[str, object]) -> DiscriminationResult:
     validate_contract("identifier-discrimination.schema.json", value)
-    if value["identifier"]["subject_kind"] != value["discrimination_target"]:
+    if value["identifier_exemplar"]["subject_kind"] != value["discrimination_target"]:
         return DiscriminationResult(
             DiscriminationDecision.REJECT,
             ("identifier_subject_mismatch",),
@@ -1105,8 +1160,8 @@ admissible Phase 1A result.
   `causal_parent_ids`, `recorded_time_ref`, `recorded_time`, and `payload`, plus
   the referenced registered CTCL receipt.
 - Produces:
-  `append_event(root: Path, draft: Mapping[str, object], ctcl_receipt: Mapping[str, object]) -> AppendReceipt` and
-  `verify_ledger(root: Path) -> LedgerVerification`.
+  `append_event(root: Path, draft: Mapping[str, object], ctcl_receipt: Mapping[str, object], *, expected_previous_chain_digest: str | None) -> AppendReceipt` and
+  `verify_ledger(root: Path, *, expected_final_chain_digest: str | None = None) -> LedgerVerification`.
 
 - [ ] **Step 1: Write failing ledger tests**
 
@@ -1239,6 +1294,7 @@ class AppendReceipt:
 @dataclass(frozen=True)
 class LedgerVerification:
     valid: bool
+    status: LedgerStatus
     event_count: int
     final_chain_digest: str | None
     error_codes: tuple[str, ...]
@@ -1423,7 +1479,8 @@ class Phase1AReport:
 4. require at least one admit, reject, and indeterminate result;
 5. require the exact measured negative fixture path;
 6. build a temporary ledger from the sorted checked-in event drafts and the
-   registered-anchor CTCL fixture, then verify that ledger;
+   registered-anchor CTCL fixture, explicitly chaining each append from the
+   prior receipt, then verify against the final receipt's chain digest;
 7. sort report paths and error codes for deterministic output.
 
 - [ ] **Step 4: Implement read-only CLI commands and deterministic JSON output**
@@ -1438,9 +1495,12 @@ class Phase1AReport:
 
 `identifier check FILE` uses the exit codes from Task 5.
 
-`ledger verify ROOT` and `phase1a verify ROOT` return zero only when `passed` or
-`valid` is true. All JSON output uses `canonical_bytes()` and appends one LF at
-the terminal boundary only; the underlying canonical value remains newline-free.
+`ledger verify ROOT --expected-final-chain-digest DIGEST` and
+`phase1a verify ROOT` return zero only when `passed` or checkpoint-backed
+`valid` is true. A ledger checked without an expected head reports
+`internally_consistent` and does not return a success verdict. All JSON output
+uses `canonical_bytes()` and appends one LF at the terminal boundary only; the
+underlying canonical value remains newline-free.
 
 - [ ] **Step 5: Implement the standalone validator wrapper**
 

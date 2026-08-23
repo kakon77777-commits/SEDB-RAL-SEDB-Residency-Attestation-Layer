@@ -1,0 +1,61 @@
+{
+  "schema_version": "0.1",
+  "routes": [
+    {
+      "route_id": "codex_queue_to_codex_conversation",
+      "source_adapter": "codex_queue",
+      "destination_surface": "codex_conversation",
+      "adapter_submits": {
+        "measurement_status": "observable",
+        "observed_value": true,
+        "evidence_refs": [
+          "fixture:adapters/codex-queue/transport-accepted.json"
+        ],
+        "reason": null
+      },
+      "observed_origin": {
+        "measurement_status": "unmeasured",
+        "observed_value": null,
+        "evidence_refs": [],
+        "reason": null
+      }
+    },
+    {
+      "route_id": "pmw_fabric_herdr_to_codex_tui",
+      "source_adapter": "pmw_fabric_herdr",
+      "destination_surface": "codex_tui",
+      "adapter_submits": {
+        "measurement_status": "observable",
+        "observed_value": false,
+        "evidence_refs": [
+          "corpus:incidents.jsonl#24",
+          "evidence:own_execution:incident-24"
+        ],
+        "reason": null
+      },
+      "observed_origin": {
+        "measurement_status": "unmeasured",
+        "observed_value": null,
+        "evidence_refs": [],
+        "reason": null
+      }
+    },
+    {
+      "route_id": "claude_session_to_claude_conversation",
+      "source_adapter": "claude_session",
+      "destination_surface": "claude_conversation",
+      "adapter_submits": {
+        "measurement_status": "unmeasured",
+        "observed_value": null,
+        "evidence_refs": [],
+        "reason": null
+      },
+      "observed_origin": {
+        "measurement_status": "unmeasured",
+        "observed_value": null,
+        "evidence_refs": [],
+        "reason": null
+      }
+    }
+  ]
+}
