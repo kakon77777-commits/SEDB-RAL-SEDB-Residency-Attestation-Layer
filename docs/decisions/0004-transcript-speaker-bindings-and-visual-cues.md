@@ -27,9 +27,9 @@ with its bound label followed by a colon:
 
 ```text
 [bindings]
-Neo.K   principal:neo.k                                    principal
-準繩     session:6d613942-d7d1-47b8-b0f3-e485e15db60f       session_uuid
-織域     codex-thread:019fe51e-9276-7f63-8c16-414624b7fa9d  codex_thread
+Neo.K   principal:neo.k                                    principal      visual_token=amber-1
+準繩     session:6d613942-d7d1-47b8-b0f3-e485e15db60f       session_uuid   visual_token=purple-1
+織域     codex-thread:019fe51e-9276-7f63-8c16-414624b7fa9d  codex_thread   visual_token=blue-1
 
 織域: message body
 ```
