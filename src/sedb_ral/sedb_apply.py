@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+import json
 from typing import Protocol
 
 from .errors import RALValidationError
@@ -25,11 +26,12 @@ _FIELD_PAGE_SIZE = 100
 
 
 class FieldServiceLike(Protocol):
-    def get_field(self, ref: str) -> dict[str, object]:
+    def get_field(self, field_id_or_key: str) -> dict[str, object]:
         raise NotImplementedError
 
     def list_fields(
         self,
+        *,
         search: str = "",
         status: str = "",
         limit: int = 100,
@@ -57,14 +59,14 @@ class EntityServiceLike(Protocol):
         raise NotImplementedError
 
     def get_entity(
-        self, entity_id: str, include_cells: bool = True
+        self, entity_id: str, *, include_cells: bool = True
     ) -> dict[str, object]:
         raise NotImplementedError
 
     def set_cell(
         self,
         entity_id: str,
-        field_ref: str,
+        field_key: str,
         value: object,
         *,
         source: str = "",
@@ -100,9 +102,16 @@ class SEDBApplyError(RuntimeError):
 
 def _require_string(record: Mapping[str, object], key: str) -> str:
     value = record.get(key)
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         raise RALValidationError("sedb_apply_record_invalid", key)
     return value
+
+
+def _require_json_value(value: object, path: str) -> None:
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise RALValidationError("sedb_apply_value_invalid", path) from error
 
 
 def _validated_records(
@@ -127,6 +136,8 @@ def _validated_records(
             raise RALValidationError(
                 "sedb_apply_value_unmapped", min(str(path) for path in unknown_paths)
             )
+        for path, value in values.items():
+            _require_json_value(value, str(path))
         record_ids.add(record_id)
         validated.append(record)
     return tuple(sorted(validated, key=lambda record: str(record["id"])))
@@ -210,25 +221,27 @@ def apply_sedb_records(
 ) -> SEDBApplyResult:
     """Apply exact exchange records through injected, SEDB-compatible services."""
     ordered_records = _validated_records(records)
-    listed_fields = _listed_fields(fields)
-
     field_refs: dict[str, str] = {}
     missing_specs: list[tuple[str, str, str, str]] = []
-    for spec in _FIELD_SPECS:
-        _, key, _, _ = spec
-        field_ref = _field_ref_from_existing(listed_fields, key)
-        if field_ref is None:
-            missing_specs.append(spec)
-        else:
-            field_refs[key] = field_ref
-
-    field_count = len(field_refs)
+    field_count = 0
     entity_count = 0
     cell_count = 0
-    reused_field_count = len(field_refs)
+    reused_field_count = 0
     reused_entity_count = 0
-    operation = "create_field"
+    operation = "list_fields"
     try:
+        listed_fields = _listed_fields(fields)
+        operation = "resolve_fields"
+        for spec in _FIELD_SPECS:
+            _, key, _, _ = spec
+            field_ref = _field_ref_from_existing(listed_fields, key)
+            if field_ref is None:
+                missing_specs.append(spec)
+            else:
+                field_refs[key] = field_ref
+        field_count = len(field_refs)
+        reused_field_count = len(field_refs)
+
         for _, key, label, description in missing_specs:
             operation = f"create_field:{_FIELD_NAMESPACE}.{key}"
             created = fields.create_field(

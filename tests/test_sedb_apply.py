@@ -46,22 +46,31 @@ class FakeFields:
         events: list[str],
         existing: Iterable[Mapping[str, object]] = (),
         fail_create_key: str | None = None,
+        fail_list: bool = False,
     ):
         self.events = events
         self.fields = {str(field["id"]): dict(field) for field in existing}
         self.fail_create_key = fail_create_key
+        self.fail_list = fail_list
 
-    def get_field(self, ref: str) -> dict[str, object]:
-        self.events.append(f"get_field:{ref}")
+    def get_field(self, field_id_or_key: str) -> dict[str, object]:
+        self.events.append(f"get_field:{field_id_or_key}")
         try:
-            return self.fields[ref]
+            return self.fields[field_id_or_key]
         except KeyError:
-            raise KeyError(ref) from None
+            raise KeyError(field_id_or_key) from None
 
     def list_fields(
-        self, search: str = "", status: str = "", limit: int = 100, offset: int = 0
+        self,
+        *,
+        search: str = "",
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[dict[str, object]]:
         self.events.append(f"list_fields:{search}:{status}:{limit}:{offset}")
+        if self.fail_list:
+            raise RuntimeError("field discovery failed")
         candidates = sorted(self.fields.values(), key=lambda field: str(field["id"]))
         if search:
             candidates = [
@@ -127,9 +136,7 @@ class FakeEntities:
         self.entities[entity_id] = entity
         return entity
 
-    def get_entity(
-        self, entity_id: str, include_cells: bool = True
-    ) -> dict[str, object]:
+    def get_entity(self, entity_id: str, *, include_cells: bool = True) -> dict[str, object]:
         self.events.append(f"get_entity:{entity_id}:{include_cells}")
         try:
             return self.entities[entity_id]
@@ -139,20 +146,20 @@ class FakeEntities:
     def set_cell(
         self,
         entity_id: str,
-        field_ref: str,
+        field_key: str,
         value: object,
         *,
         source: str = "",
         confidence: float | None = None,
     ) -> dict[str, object]:
-        self.events.append(f"set_cell:{entity_id}:{field_ref}")
-        if field_ref == self.fail_set_field_id:
+        self.events.append(f"set_cell:{entity_id}:{field_key}")
+        if field_key == self.fail_set_field_id:
             self.fail_set_field_id = None
-            raise RuntimeError(f"cell write failed for {field_ref}")
-        self.cells[(entity_id, field_ref)] = value
+            raise RuntimeError(f"cell write failed for {field_key}")
+        self.cells[(entity_id, field_key)] = value
         return {
             "entity_id": entity_id,
-            "field_ref": field_ref,
+            "field_key": field_key,
             "value": value,
             "source": source,
             "confidence": confidence,
@@ -232,10 +239,67 @@ def test_apply_rejects_conflicting_field_before_any_write(existing):
     fields = FakeFields(events, existing)
     entities = FakeEntities(events)
 
-    with pytest.raises(RALValidationError, match="sedb_apply_field_conflict"):
+    with pytest.raises(SEDBApplyError) as exc:
         apply_sedb_records(RECORDS, fields, entities)
 
+    assert exc.value.failed_operation == "resolve_fields"
+    assert isinstance(exc.value.cause, RALValidationError)
+    assert exc.value.progress.field_count == 0
     assert events == ["list_fields:::100:0"]
+    assert entities.entities == {}
+    assert entities.cells == {}
+
+
+def test_field_discovery_failure_reports_zero_progress():
+    events: list[str] = []
+    fields = FakeFields(events, fail_list=True)
+    entities = FakeEntities(events)
+
+    with pytest.raises(SEDBApplyError) as exc:
+        apply_sedb_records(RECORDS, fields, entities)
+
+    assert exc.value.failed_operation == "list_fields"
+    assert isinstance(exc.value.cause, RuntimeError)
+    assert exc.value.progress.field_count == 0
+    assert exc.value.progress.entity_count == 0
+    assert exc.value.progress.cell_count == 0
+    assert events == ["list_fields:::100:0"]
+    assert entities.entities == {}
+    assert entities.cells == {}
+
+
+def test_whitespace_label_is_rejected_before_any_service_call():
+    events: list[str] = []
+    fields = FakeFields(events)
+    entities = FakeEntities(events)
+    records = ({**RECORDS[0], "label": " \t "},)
+
+    with pytest.raises(RALValidationError, match="sedb_apply_record_invalid"):
+        apply_sedb_records(records, fields, entities)
+
+    assert events == []
+    assert fields.fields == {}
+    assert entities.entities == {}
+    assert entities.cells == {}
+
+
+@pytest.mark.parametrize("value", [object(), float("nan"), float("inf")])
+def test_non_json_or_nonfinite_value_is_rejected_before_any_service_call(value):
+    events: list[str] = []
+    fields = FakeFields(events)
+    entities = FakeEntities(events)
+    records = (
+        {
+            **RECORDS[0],
+            "values": {"ral.resident_id": value},
+        },
+    )
+
+    with pytest.raises(RALValidationError, match="sedb_apply_value_invalid"):
+        apply_sedb_records(records, fields, entities)
+
+    assert events == []
+    assert fields.fields == {}
     assert entities.entities == {}
     assert entities.cells == {}
 
