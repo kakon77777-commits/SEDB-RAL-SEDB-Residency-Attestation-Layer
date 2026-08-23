@@ -57,6 +57,7 @@ def test_sqlite_rows_equal_across_two_rebuilds(tmp_path):
     second = rebuild_sqlite(events, tmp_path / "b.sqlite3")
 
     assert dump_rows(first) == dump_rows(second)
+    assert first.read_bytes() == second.read_bytes()
     assert dump_rows(first)["applications"][0][:2] == (
         "application:test:1",
         "accepted",

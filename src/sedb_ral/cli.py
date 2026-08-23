@@ -228,10 +228,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = evaluate_application(
                 fixture["application"],
                 fixture["authorities"],
-                verified_attestation_refs=frozenset(
-                    item["authorship_attestation_ref"]
-                    for item in fixture["authorities"]
-                ),
+                # Input authority references are claims, not verification evidence.
+                verified_attestation_refs=frozenset(),
             )
         except (OSError, UnicodeError, json.JSONDecodeError, RALValidationError, KeyError, TypeError) as error:
             code = _error_code(error)

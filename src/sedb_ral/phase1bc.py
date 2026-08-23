@@ -47,6 +47,7 @@ class Phase1BCReport:
     phase1a_passed: bool
     no_send_findings: tuple[str, ...]
     sqlite_row_counts: dict[str, int]
+    sqlite_bytes_identical: bool
     incident_count: int
     delivery_stage: str | None
     executed_faults: tuple[ExecutedFault, ...]
@@ -58,6 +59,7 @@ class Phase1BCReport:
             "phase1a_passed": self.phase1a_passed,
             "no_send_findings": list(self.no_send_findings),
             "sqlite_row_counts": self.sqlite_row_counts,
+            "sqlite_bytes_identical": self.sqlite_bytes_identical,
             "incident_count": self.incident_count,
             "delivery_stage": self.delivery_stage,
             "executed_faults": [item.as_json() for item in self.executed_faults],
@@ -106,23 +108,6 @@ def _sample_events(root: Path, temporary: Path) -> tuple[dict[str, object], ...]
     return read_verified_events(temporary / "ledger", receipt.chain_digest)
 
 
-def _rows(path: Path) -> tuple[tuple[str, tuple[tuple[object, ...], ...]], ...]:
-    connection = sqlite3.connect(path)
-    try:
-        tables = [
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
-            )
-        ]
-        return tuple(
-            (table, tuple(connection.execute(f"SELECT * FROM {table} ORDER BY 1")))
-            for table in tables
-        )
-    finally:
-        connection.close()
-
-
 def _fault_phase1a_missing_negative_fixture(root: Path) -> ExecutedFault:
     with tempfile.TemporaryDirectory(prefix="sedb-ral-phase1bc-fault-") as name:
         copied = Path(name) / "repo"
@@ -157,7 +142,11 @@ def _fault_sqlite_projection_mutation(
         connection.commit()
     finally:
         connection.close()
-    observed = "sqlite_projection_mismatch" if _rows(first) != _rows(second) else "fault_not_detected"
+    observed = (
+        "sqlite_projection_mismatch"
+        if first.read_bytes() != second.read_bytes()
+        else "fault_not_detected"
+    )
     return ExecutedFault(
         "sqlite_projection_mutation",
         "sqlite_projection_mismatch",
@@ -199,6 +188,8 @@ def validate_phase1bc(root: Path) -> Phase1BCReport:
         errors.append("no_send_violation")
 
     sqlite_counts: dict[str, int] = {}
+    sqlite_bytes_identical = False
+    faults: list[ExecutedFault] = []
     try:
         with tempfile.TemporaryDirectory(prefix="sedb-ral-phase1bc-") as name:
             temporary = Path(name)
@@ -206,25 +197,34 @@ def validate_phase1bc(root: Path) -> Phase1BCReport:
             first = rebuild_sqlite(events, temporary / "first.sqlite3")
             second = rebuild_sqlite(events, temporary / "second.sqlite3")
             sqlite_counts = table_row_counts(first)
-            if _rows(first) != _rows(second):
+            sqlite_bytes_identical = first.read_bytes() == second.read_bytes()
+            if not sqlite_bytes_identical:
                 errors.append("sqlite_rebuild_nondeterministic")
             if sqlite_counts["applications"] != 1 or sqlite_counts["residents"] != 1:
                 errors.append("sqlite_projection_incomplete")
-            faults = (
-                _fault_phase1a_missing_negative_fixture(root),
-                _fault_sqlite_projection_mutation(root, temporary / "mutation"),
-                _fault_no_send(
+            controls = (
+                lambda: _fault_phase1a_missing_negative_fixture(root),
+                lambda: _fault_sqlite_projection_mutation(
+                    root, temporary / "mutation"
+                ),
+                lambda: _fault_no_send(
                     "no_send_socket_call",
                     "import socket\nsocket.create_connection(('example.test', 443))\n",
                     "forbidden_call:socket.create_connection",
                 ),
-                _fault_no_send(
-                    "no_send_sedb_import", "import sedb\n", "forbidden_import:sedb"
+                lambda: _fault_no_send(
+                    "no_send_sedb_import",
+                    "import sedb\n",
+                    "forbidden_import:sedb",
                 ),
             )
+            for control in controls:
+                try:
+                    faults.append(control())
+                except Exception as error:
+                    errors.append(_error_code(error))
     except Exception as error:
         errors.append(_error_code(error))
-        faults = ()
 
     try:
         fixture = _load(root / "fixtures/application/authorized-zero-address.json")
@@ -270,8 +270,9 @@ def validate_phase1bc(root: Path) -> Phase1BCReport:
         phase1a_passed=phase1a.passed,
         no_send_findings=no_send_findings,
         sqlite_row_counts=sqlite_counts,
+        sqlite_bytes_identical=sqlite_bytes_identical,
         incident_count=incident_count,
         delivery_stage=delivery_stage,
-        executed_faults=faults,
+        executed_faults=tuple(faults),
         error_codes=unique_errors,
     )
