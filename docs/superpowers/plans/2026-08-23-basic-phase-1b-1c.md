@@ -333,7 +333,6 @@ git commit -m "feat: commit resident applications append-only"
 
 - Create: `src/sedb_ral/projection.py`
 - Create: `tests/test_projection.py`
-- Create: `fixtures/projection/expected-directory.json`
 
 **Interfaces:**
 
@@ -368,7 +367,7 @@ Copy one projection, mutate a byte, and assert `compare_projection_bytes()` retu
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src/sedb_ral/projection.py tests/test_projection.py fixtures/projection
+git add src/sedb_ral/projection.py tests/test_projection.py
 git commit -m "feat: rebuild deterministic registry projections"
 ```
 
