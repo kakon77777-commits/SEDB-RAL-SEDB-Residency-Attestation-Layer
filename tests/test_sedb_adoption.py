@@ -1,12 +1,14 @@
 import hashlib
 import json
-import os
+import shutil
 import stat
+import tempfile
 import zipfile
 from pathlib import Path
 
 import pytest
 
+import sedb_ral.sedb_adoption as adoption
 from sedb_ral.sedb_adoption import (
     extract_verified_sedb,
     inspect_sedb_archive,
@@ -260,6 +262,44 @@ def test_windows_equivalent_member_names_are_rejected(
 
 
 @pytest.mark.parametrize(
+    "compatibility_separator",
+    ["\uff3c", "\uff0f"],
+    ids=["fullwidth-reverse-solidus", "fullwidth-solidus"],
+)
+def test_nfkc_compatibility_separator_collides_before_staging(
+    tmp_path, compatibility_separator, monkeypatch
+):
+    archive = tmp_path / "separator-collision.zip"
+    members = package_members()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for name, payload in members.items():
+            bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
+        bundle.writestr(
+            f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
+        )
+        bundle.writestr(f"{PACKAGE_ROOT}/data/a/b.txt", b"first")
+        second_info = zipfile.ZipInfo("placeholder")
+        second_info.filename = (
+            f"{PACKAGE_ROOT}/data/a{compatibility_separator}b.txt"
+        )
+        bundle.writestr(second_info, b"second")
+
+    def staging_must_not_be_created(*args, **kwargs):
+        raise AssertionError("unsafe member reached staging creation")
+
+    monkeypatch.setattr(tempfile, "mkdtemp", staging_must_not_be_created)
+    profile = archive_profile(archive)
+
+    result = inspect_sedb_archive(archive, profile)
+
+    assert result.error_codes == ("archive_path_unsafe",)
+    target = tmp_path / "target"
+    with pytest.raises(ValueError, match="archive_path_unsafe"):
+        extract_verified_sedb(archive, profile, target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
     ("field", "value", "error_code"),
     [
         ("package_name", "sedb-other", "package_name_mismatch"),
@@ -373,6 +413,88 @@ def test_same_size_archive_replacement_cannot_change_extracted_bytes(
     ]
 
 
+def test_archive_snapshot_reads_are_explicitly_bounded(tmp_path, monkeypatch):
+    archive = tmp_path / "package.zip"
+    write_package(archive)
+    profile = archive_profile(archive)
+    original_open = Path.open
+    read_sizes: list[int] = []
+
+    class BoundedReader:
+        def __init__(self, source):
+            self.source = source
+
+        def __getattr__(self, name):
+            return getattr(self.source, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.source.close()
+
+        def read(self, size=-1):
+            if size is None or size < 0:
+                raise AssertionError("unbounded snapshot read")
+            read_sizes.append(size)
+            return self.source.read(size)
+
+    def enforce_bounded_reads(path, mode="r", *args, **kwargs):
+        source = original_open(path, mode, *args, **kwargs)
+        if Path(path) == archive and mode == "rb":
+            return BoundedReader(source)
+        return source
+
+    monkeypatch.setattr(Path, "open", enforce_bounded_reads)
+
+    result = inspect_sedb_archive(archive, profile)
+
+    assert result.compatible is True
+    assert read_sizes
+    assert max(read_sizes) <= profile["archive_size"] + 1
+
+
+def test_oversized_archive_fails_fstat_before_read(tmp_path, monkeypatch):
+    archive = tmp_path / "package.zip"
+    write_package(archive)
+    profile = archive_profile(archive)
+    with archive.open("ab") as stream:
+        stream.write(b"x")
+    original_open = Path.open
+    read_calls = 0
+
+    class CountingReader:
+        def __init__(self, source):
+            self.source = source
+
+        def __getattr__(self, name):
+            return getattr(self.source, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.source.close()
+
+        def read(self, size=-1):
+            nonlocal read_calls
+            read_calls += 1
+            return self.source.read(size)
+
+    def count_reads(path, mode="r", *args, **kwargs):
+        source = original_open(path, mode, *args, **kwargs)
+        if Path(path) == archive and mode == "rb":
+            return CountingReader(source)
+        return source
+
+    monkeypatch.setattr(Path, "open", count_reads)
+
+    result = inspect_sedb_archive(archive, profile)
+
+    assert result.error_codes == ("archive_size_mismatch",)
+    assert read_calls == 0
+
+
 def test_extraction_requires_a_new_target_and_preserves_existing_content(tmp_path):
     archive = tmp_path / "package.zip"
     write_package(archive)
@@ -438,16 +560,102 @@ def test_target_appearing_at_publish_is_preserved(tmp_path, monkeypatch):
     write_package(archive)
     target = tmp_path / "published"
     sentinel = target / "unrelated.txt"
-    original_rename = os.rename
+    original_publish = adoption._publish_staging_no_replace
 
-    def target_appears_before_publish(source, destination, *args, **kwargs):
-        Path(destination).mkdir()
+    def target_appears_before_publish(source, destination):
+        destination.mkdir()
         sentinel.write_text("do not replace", encoding="utf-8")
-        return original_rename(source, destination, *args, **kwargs)
+        return original_publish(source, destination)
 
-    monkeypatch.setattr(os, "rename", target_appears_before_publish)
+    monkeypatch.setattr(
+        adoption,
+        "_publish_staging_no_replace",
+        target_appears_before_publish,
+    )
 
     with pytest.raises(FileExistsError):
         extract_verified_sedb(archive, archive_profile(archive), target)
 
     assert sentinel.read_text(encoding="utf-8") == "do not replace"
+
+
+def test_cleanup_swap_after_identity_check_is_abandoned(tmp_path, monkeypatch):
+    archive = tmp_path / "package.zip"
+    write_package(archive)
+    target = tmp_path / "published"
+    original_open = Path.open
+    original_rmtree = shutil.rmtree
+    staging_path: Path | None = None
+    cleanup_called = False
+
+    def fail_first_member_copy(path, mode="r", *args, **kwargs):
+        nonlocal staging_path
+        candidate = Path(path)
+        if mode == "xb" and staging_path is None:
+            staging_path = next(
+                parent for parent in candidate.parents if parent.parent == tmp_path
+            )
+            raise OSError("injected_copy_failure")
+        return original_open(path, mode, *args, **kwargs)
+
+    def swap_when_cleanup_starts(path, *args, **kwargs):
+        nonlocal cleanup_called
+        cleanup_called = True
+        staging = Path(path)
+        moved = staging.with_name(f"{staging.name}.owned")
+        staging.rename(moved)
+        staging.mkdir()
+        (staging / "unrelated.txt").write_text(
+            "do not delete", encoding="utf-8"
+        )
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_first_member_copy)
+    monkeypatch.setattr(shutil, "rmtree", swap_when_cleanup_starts)
+
+    with pytest.raises(OSError, match="injected_copy_failure"):
+        extract_verified_sedb(archive, archive_profile(archive), target)
+
+    assert cleanup_called is False
+    assert staging_path is not None
+    assert staging_path.is_dir()
+    assert not target.exists()
+
+
+def test_publish_uses_retained_directory_after_postcheck_swap(
+    tmp_path, monkeypatch
+):
+    archive = tmp_path / "package.zip"
+    members = write_package(archive)
+    target = tmp_path / "published"
+    original_publish = adoption._publish_staging_no_replace
+    swapped_path: Path | None = None
+    replacement_sentinel: Path | None = None
+
+    def swap_after_identity_check(source, destination):
+        nonlocal swapped_path, replacement_sentinel
+        staging = source.path if hasattr(source, "path") else source
+        moved = staging.with_name(f"{staging.name}.owned")
+        staging.rename(moved)
+        staging.mkdir()
+        replacement_sentinel = staging / "unrelated.txt"
+        replacement_sentinel.write_text("replacement", encoding="utf-8")
+        swapped_path = staging
+        return original_publish(source, destination)
+
+    monkeypatch.setattr(
+        adoption,
+        "_publish_staging_no_replace",
+        swap_after_identity_check,
+    )
+
+    extracted = extract_verified_sedb(archive, archive_profile(archive), target)
+
+    assert extracted == target
+    assert (target / PACKAGE_ROOT / "data/payload.txt").read_bytes() == members[
+        "data/payload.txt"
+    ]
+    assert not (target / "unrelated.txt").exists()
+    assert swapped_path is not None
+    assert replacement_sentinel is not None
+    assert replacement_sentinel.read_text(encoding="utf-8") == "replacement"

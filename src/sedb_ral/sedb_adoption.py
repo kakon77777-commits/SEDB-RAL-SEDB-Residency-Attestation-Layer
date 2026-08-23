@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import stat
-import sys
 import tempfile
 import tomllib
 import unicodedata
@@ -24,6 +23,11 @@ _WINDOWS_RESERVED_COMPONENTS = frozenset(
     | {f"com{number}" for number in range(1, 10)}
     | {f"lpt{number}" for number in range(1, 10)}
 )
+_SNAPSHOT_CHUNK_SIZE = 1024 * 1024
+
+
+class _ArchiveSizeMismatch(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,13 @@ class SEDBAdoptionInspection:
     manifest_entry_count: int
     manifest_verified: bool
     error_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _WindowsDirectoryHandle:
+    path: Path
+    value: int
+    identity: tuple[int, int]
 
 
 def _inspection_failure(
@@ -56,13 +67,42 @@ def _inspection_failure(
     )
 
 
-def _read_archive_snapshot(path: Path) -> bytes:
+def _read_archive_snapshot(path: Path, expected_size: int) -> bytes:
     with path.open("rb") as source:
-        return source.read()
+        if os.fstat(source.fileno()).st_size != expected_size:
+            raise _ArchiveSizeMismatch
+
+        chunks: list[bytes] = []
+        remaining = expected_size + 1
+        while remaining:
+            read_size = min(_SNAPSHOT_CHUNK_SIZE, remaining)
+            chunk = source.read(read_size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+            if len(chunk) < read_size:
+                break
+
+    snapshot = b"".join(chunks)
+    if len(snapshot) != expected_size:
+        raise _ArchiveSizeMismatch
+    return snapshot
+
+
+def _expected_archive_size(profile: Mapping[str, object]) -> int | None:
+    expected_size = profile.get("archive_size")
+    if (
+        not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size < 0
+    ):
+        return None
+    return expected_size
 
 
 def _safe_member_parts(name: str) -> tuple[str, ...] | None:
-    normalized = name.replace("\\", "/")
+    normalized = unicodedata.normalize("NFKC", name).replace("\\", "/")
     if not normalized or normalized.startswith("/"):
         return None
 
@@ -79,6 +119,8 @@ def _safe_member_parts(name: str) -> tuple[str, ...] | None:
         windows_stem = part.casefold().split(".", 1)[0]
         if (
             part in {"", ".", ".."}
+            or "/" in part
+            or "\\" in part
             or part.endswith((".", " "))
             or ":" in part
             or windows_stem in _WINDOWS_RESERVED_COMPONENTS
@@ -293,14 +335,124 @@ def inspect_sedb_archive(
     archive: str | Path, profile: Mapping[str, object]
 ) -> SEDBAdoptionInspection:
     archive_path = Path(archive)
+    if archive_path.name != profile.get("archive_filename"):
+        return _inspection_failure("", "archive_filename_mismatch")
+    expected_size = _expected_archive_size(profile)
+    if expected_size is None:
+        return _inspection_failure("", "archive_size_mismatch")
     try:
-        snapshot = _read_archive_snapshot(archive_path)
-        return _inspect_snapshot(archive_path, profile, snapshot)
+        snapshot = _read_archive_snapshot(archive_path, expected_size)
+    except _ArchiveSizeMismatch:
+        return _inspection_failure("", "archive_size_mismatch")
     except OSError:
         return _inspection_failure("", "archive_unavailable")
+    return _inspect_snapshot(archive_path, profile, snapshot)
+
+
+def _open_windows_directory(path: Path, access: int) -> int:
+    if os.name != "nt":
+        raise OSError(
+            errno.ENOTSUP,
+            "operation-bound directory handles are supported only on Windows",
+            path,
+        )
+
+    import ctypes
+    from ctypes import wintypes
+
+    create_file = ctypes.WinDLL("kernel32", use_last_error=True).CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    handle = create_file(
+        str(path),
+        access,
+        0x00000001 | 0x00000002 | 0x00000004,
+        None,
+        3,
+        0x02000000,
+        None,
+    )
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return int(handle)
+
+
+def _windows_handle_identity(handle: int) -> tuple[int, int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class _FileTime(ctypes.Structure):
+        _fields_ = [
+            ("low", wintypes.DWORD),
+            ("high", wintypes.DWORD),
+        ]
+
+    class _ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("attributes", wintypes.DWORD),
+            ("creation_time", _FileTime),
+            ("last_access_time", _FileTime),
+            ("last_write_time", _FileTime),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    get_information = ctypes.WinDLL(
+        "kernel32", use_last_error=True
+    ).GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_ByHandleFileInformation),
+    ]
+    get_information.restype = wintypes.BOOL
+    information = _ByHandleFileInformation()
+    if not get_information(handle, ctypes.byref(information)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    file_index = (information.file_index_high << 32) | information.file_index_low
+    return information.volume_serial_number, file_index
+
+
+def _close_windows_handle(handle: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    close_handle = ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    if not close_handle(handle):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _open_staging_handle(path: Path) -> _WindowsDirectoryHandle:
+    handle = _open_windows_directory(path, 0x00010000)
+    try:
+        identity = _windows_handle_identity(handle)
+    except BaseException:
+        _close_windows_handle(handle)
+        raise
+    return _WindowsDirectoryHandle(path=path, value=handle, identity=identity)
 
 
 def _directory_identity(path: Path) -> tuple[int, int]:
+    if os.name == "nt":
+        handle = _open_windows_directory(path, 0)
+        try:
+            return _windows_handle_identity(handle)
+        finally:
+            _close_windows_handle(handle)
+
     metadata = path.stat(follow_symlinks=False)
     if not stat.S_ISDIR(metadata.st_mode):
         raise RuntimeError("staging_identity_mismatch")
@@ -312,48 +464,66 @@ def _assert_directory_identity(path: Path, expected: tuple[int, int]) -> None:
         raise RuntimeError("staging_identity_mismatch")
 
 
-def _cleanup_owned_staging(path: Path, expected: tuple[int, int]) -> None:
-    try:
-        _assert_directory_identity(path, expected)
-    except FileNotFoundError:
-        return
-    shutil.rmtree(path)
-
-
-def _publish_staging_no_replace(staging: Path, target: Path) -> None:
-    if os.name == "nt":
-        os.rename(staging, target)
-        return
-
-    if sys.platform.startswith("linux"):
-        import ctypes
-
-        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
-        renameat2.argtypes = [
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_uint,
-        ]
-        renameat2.restype = ctypes.c_int
-        result = renameat2(
-            -100,
-            os.fsencode(staging),
-            -100,
-            os.fsencode(target),
-            1,
+def _publish_staging_no_replace(
+    staging: _WindowsDirectoryHandle, target: Path
+) -> None:
+    if os.name != "nt":
+        raise OSError(
+            errno.ENOTSUP,
+            "operation-bound directory publish is supported only on Windows",
+            target,
         )
-        if result != 0:
-            error_number = ctypes.get_errno()
-            raise OSError(error_number, os.strerror(error_number), target)
-        return
 
-    raise OSError(
-        errno.ENOTSUP,
-        "atomic no-replace directory publish is unavailable",
-        target,
+    import ctypes
+    from ctypes import wintypes
+
+    class _FileRenameInformation(ctypes.Structure):
+        _fields_ = [
+            ("replace_if_exists", ctypes.c_ubyte),
+            ("root_directory", wintypes.HANDLE),
+            ("file_name_length", wintypes.DWORD),
+            ("file_name", wintypes.WCHAR * 1),
+        ]
+
+    target_text = str(target)
+    if target_text.startswith("\\\\"):
+        nt_target = "\\??\\UNC\\" + target_text.lstrip("\\")
+    else:
+        nt_target = "\\??\\" + target_text
+    encoded_target = nt_target.encode("utf-16-le")
+    file_name_offset = _FileRenameInformation.file_name.offset
+    buffer = ctypes.create_string_buffer(
+        file_name_offset + len(encoded_target) + 2
     )
+    information = _FileRenameInformation.from_buffer(buffer)
+    information.replace_if_exists = 0
+    information.root_directory = None
+    information.file_name_length = len(encoded_target)
+    ctypes.memmove(
+        ctypes.addressof(buffer) + file_name_offset,
+        encoded_target,
+        len(encoded_target),
+    )
+
+    set_information = ctypes.WinDLL(
+        "kernel32", use_last_error=True
+    ).SetFileInformationByHandle
+    set_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    set_information.restype = wintypes.BOOL
+    if not set_information(staging.value, 3, buffer, len(buffer)):
+        error_number = ctypes.get_last_error()
+        if error_number in {80, 183}:
+            raise FileExistsError(
+                errno.EEXIST,
+                os.strerror(errno.EEXIST),
+                target,
+            )
+        raise ctypes.WinError(error_number)
 
 
 def extract_verified_sedb(
@@ -361,8 +531,17 @@ def extract_verified_sedb(
 ) -> Path:
     archive_path = Path(archive)
     target_path = Path(target)
+    if archive_path.name != profile.get("archive_filename"):
+        raise ValueError("sedb_archive_incompatible:archive_filename_mismatch")
+    expected_size = _expected_archive_size(profile)
+    if expected_size is None:
+        raise ValueError("sedb_archive_incompatible:archive_size_mismatch")
     try:
-        snapshot = _read_archive_snapshot(archive_path)
+        snapshot = _read_archive_snapshot(archive_path, expected_size)
+    except _ArchiveSizeMismatch as error:
+        raise ValueError(
+            "sedb_archive_incompatible:archive_size_mismatch"
+        ) from error
     except OSError as error:
         raise ValueError("sedb_archive_incompatible:archive_unavailable") from error
     inspection = _inspect_snapshot(archive_path, profile, snapshot)
@@ -379,14 +558,19 @@ def extract_verified_sedb(
         publish_target = target_parent / target_path.name
         if os.path.lexists(publish_target):
             raise FileExistsError(publish_target)
+        if os.name != "nt":
+            raise OSError(
+                errno.ENOTSUP,
+                "operation-bound extraction publish is supported only on Windows",
+                publish_target,
+            )
         staging_path = Path(
             tempfile.mkdtemp(
                 prefix=f".{target_path.name}.sedb-",
                 dir=target_parent,
             )
         )
-        staging_identity = _directory_identity(staging_path)
-        published = False
+        staging_handle = _open_staging_handle(staging_path)
         try:
             for canonical_name, info in members.items():
                 destination = staging_path.joinpath(*canonical_name.split("/"))
@@ -403,16 +587,10 @@ def extract_verified_sedb(
                     "xb"
                 ) as sink:
                     shutil.copyfileobj(member_source, sink)
-            _assert_directory_identity(staging_path, staging_identity)
-            _publish_staging_no_replace(staging_path, publish_target)
-            published = True
-            _assert_directory_identity(publish_target, staging_identity)
-        except BaseException as error:
-            if not published:
-                try:
-                    _cleanup_owned_staging(staging_path, staging_identity)
-                except BaseException as cleanup_error:
-                    raise cleanup_error from error
-            raise
+            _assert_directory_identity(staging_path, staging_handle.identity)
+            _publish_staging_no_replace(staging_handle, publish_target)
+            _assert_directory_identity(publish_target, staging_handle.identity)
+        finally:
+            _close_windows_handle(staging_handle.value)
 
     return publish_target
