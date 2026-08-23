@@ -85,8 +85,15 @@ ATTESTATION = {
     "evidence_basis": "own_execution",
     "evidence_root_refs": ["evidence:root:1"],
     "derivation_parent_refs": [],
-    "independence_status": "independent",
+    "evidence_refs": ["evidence:execution:1"],
+    "record_status": "active",
+    "observer_independence_status": "independent",
+    "evidence_independence_status": "independent",
+    "independence_scope": "resident:test",
     "verification_status": "verified",
+    "scope": ["resident:test"],
+    "temporal_validity": "valid",
+    "not_claimed": [],
 }
 AUTHORITY = {
     "schema_version": "0.1",
@@ -170,15 +177,49 @@ def test_observed_origin_null_is_not_false():
         validate_contract("observation.schema.json", value)
 
 
-def test_attestation_independence_is_categorical():
-    for status in ("independent", "shared_root", "indeterminate", "unmeasured"):
+def test_attestation_preserves_both_independence_dimensions():
+    for status in (
+        "independent",
+        "shared_observer",
+        "indeterminate",
+        "unmeasured",
+    ):
         value = copy.deepcopy(ATTESTATION)
-        value["independence_status"] = status
+        value["observer_independence_status"] = status
         validate_contract("attestation.schema.json", value)
     value = copy.deepcopy(ATTESTATION)
-    value["independence_status"] = True
+    value["observer_independence_status"] = True
     with pytest.raises(RALValidationError, match="schema_invalid"):
         validate_contract("attestation.schema.json", value)
+
+    for status in ("independent", "shared_root", "indeterminate", "unmeasured"):
+        value = copy.deepcopy(ATTESTATION)
+        value["evidence_independence_status"] = status
+        validate_contract("attestation.schema.json", value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("evidence_basis", "peer_assertion_verified"),
+        ("evidence_basis", "receiver_transport_observation"),
+        ("verification_status", "failed"),
+        ("verification_status", "unavailable"),
+    ],
+)
+def test_attestation_rejects_noncanonical_basis_or_verification(field, value):
+    candidate = copy.deepcopy(ATTESTATION)
+    candidate[field] = value
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        validate_contract("attestation.schema.json", candidate)
+
+
+def test_shared_root_requires_an_evidence_root():
+    candidate = copy.deepcopy(ATTESTATION)
+    candidate["evidence_independence_status"] = "shared_root"
+    candidate["evidence_root_refs"] = []
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        validate_contract("attestation.schema.json", candidate)
 
 
 def test_application_cannot_request_an_identity_merge():

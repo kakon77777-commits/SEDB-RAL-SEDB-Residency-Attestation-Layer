@@ -80,5 +80,16 @@ def _findings(path: Path, root: Path) -> tuple[NoSendFinding, ...]:
 def scan_no_send(package_root: Path) -> tuple[NoSendFinding, ...]:
     """Return AST findings for transport/process or external-SEDB imports."""
     root = Path(package_root)
-    findings = [finding for path in sorted(root.rglob("*.py")) for finding in _findings(path, root)]
+    if not root.exists():
+        return (NoSendFinding("package_root_missing", ".", 0),)
+    if not root.is_dir():
+        return (NoSendFinding("package_root_not_directory", ".", 0),)
+    paths = sorted(root.rglob("*.py"))
+    if not paths:
+        return (NoSendFinding("python_source_missing", ".", 0),)
+    findings = [
+        finding
+        for path in paths
+        for finding in _findings(path, root)
+    ]
     return tuple(sorted(findings))

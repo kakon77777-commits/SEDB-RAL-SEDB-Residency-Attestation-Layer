@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from .adapters.codex_queue import AdapterObservation, TransitionEvidence
+from .contracts import validate_contract
 from .errors import RALValidationError
 
 
@@ -111,6 +112,42 @@ def evaluate_route_predicates(
             )
         ),
     )
+
+
+def validate_adapter_matrix(value: Mapping[str, object]) -> None:
+    validate_contract("adapter-matrix.schema.json", value)
+    routes = value["routes"]
+    route_ids = [item["route_id"] for item in routes]
+    route_pairs = [
+        (item["source_adapter"], item["destination_surface"])
+        for item in routes
+    ]
+    if len(route_ids) != len(set(route_ids)):
+        raise RALValidationError(
+            "adapter_route_duplicate", "route IDs must be unique"
+        )
+    if len(route_pairs) != len(set(route_pairs)):
+        raise RALValidationError(
+            "adapter_route_duplicate", "source/destination routes must be unique"
+        )
+
+
+def matrix_adapter_submits(
+    value: Mapping[str, object], route_id: str
+) -> bool | None:
+    validate_adapter_matrix(value)
+    route = next(
+        (item for item in value["routes"] if item["route_id"] == route_id),
+        None,
+    )
+    if route is None:
+        raise RALValidationError("adapter_route_missing", route_id)
+    observed = route["adapter_submits"]["observed_value"]
+    if observed is not None and type(observed) is not bool:
+        raise RALValidationError(
+            "adapter_submission_invalid", "route diagnostic value is not tri-state"
+        )
+    return observed
 
 
 def reconstruct_delivery(

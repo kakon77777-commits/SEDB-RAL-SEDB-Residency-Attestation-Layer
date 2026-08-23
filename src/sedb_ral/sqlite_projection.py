@@ -5,6 +5,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from .canonical import canonical_bytes
+from .contracts import validate_contract
 from .projection import project_events
 
 _TABLES = (
@@ -77,26 +78,32 @@ def rebuild_sqlite(
                 deliveries[str(delivery["delivery_id"])] = delivery
 
     for resident_id, resident in projection.residents.items():
+        source_event_id = projection.resident_source_event_ids[resident_id]
         for instance in resident["instances"]:
             binding_id = f"binding:instance:{instance['instance_id']}"
             bindings[binding_id] = {
+                "schema_version": "0.1",
                 "binding_id": binding_id,
                 "subject_ref": resident_id,
                 "object_kind": "instance",
                 "object_ref": instance["instance_id"],
-                "valid_from_event": "projection:resident.registered",
+                "valid_from_event": source_event_id,
                 "valid_until_event": None,
             }
         for address in resident["addresses"]:
             binding_id = f"binding:address:{address['address_id']}"
             bindings[binding_id] = {
+                "schema_version": "0.1",
                 "binding_id": binding_id,
                 "subject_ref": resident_id,
                 "object_kind": "address",
                 "object_ref": address["address_id"],
-                "valid_from_event": "projection:resident.registered",
+                "valid_from_event": source_event_id,
                 "valid_until_event": None,
             }
+
+    for binding in bindings.values():
+        validate_contract("binding.schema.json", binding)
 
     connection = sqlite3.connect(path)
     try:

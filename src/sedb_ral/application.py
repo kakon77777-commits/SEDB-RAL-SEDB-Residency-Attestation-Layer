@@ -34,9 +34,18 @@ class ApplicationCommitReceipt:
     decision_ref: str
     application_digest: str
     authority_ref: str
+    authority_digest: str
+    authority_grant_event_id: str
     event_ids: tuple[str, ...]
     chain_digest: str
     committed: bool = True
+
+
+@dataclass(frozen=True)
+class _AuthorityGrant:
+    authority: dict[str, object]
+    authority_digest: str
+    grant_event_id: str
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -48,6 +57,52 @@ def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
 
 def application_digest(value: Mapping[str, object]) -> str:
     return sha256_ref(_canonical_object(value))
+
+
+def authority_digest(value: Mapping[str, object]) -> str:
+    return sha256_ref(_canonical_object(value))
+
+
+def _has_duplicate_id(
+    values: Iterable[Mapping[str, object]], field: str
+) -> bool:
+    identifiers = [item[field] for item in values]
+    return len(identifiers) != len(set(identifiers))
+
+
+def validate_application_references(
+    application: Mapping[str, object],
+) -> tuple[str, ...]:
+    """Return deterministic cross-reference failures without mutating input."""
+    resident_id = application["claimed_resident_id"]
+    instances = application["instance_claims"]
+    addresses = application["addresses"]
+    claims = application["claims"]
+    instance_ids = {item["instance_id"] for item in instances}
+    errors: list[str] = []
+    if any(item["resident_ref"] != resident_id for item in instances):
+        errors.append("application_instance_resident_mismatch")
+    if any(item["target_ref"] != resident_id for item in addresses):
+        errors.append("application_address_target_mismatch")
+    if any(item["subject_ref"] != resident_id for item in claims):
+        errors.append("application_claim_subject_mismatch")
+    if any(item["claimant_ref"] != resident_id for item in claims):
+        errors.append("application_claim_claimant_mismatch")
+    if any(
+        item["claimed_authored_by_instance"] is not None
+        and item["claimed_authored_by_instance"] not in instance_ids
+        for item in claims
+    ):
+        errors.append("application_claim_instance_undeclared")
+    if any(item["claimed_on_behalf_of_line"] is not None for item in claims):
+        errors.append("application_on_behalf_unsupported")
+    if _has_duplicate_id(instances, "instance_id"):
+        errors.append("application_instance_id_duplicate")
+    if _has_duplicate_id(addresses, "address_id"):
+        errors.append("application_address_id_duplicate")
+    if _has_duplicate_id(claims, "claim_id"):
+        errors.append("application_claim_id_duplicate")
+    return tuple(errors)
 
 
 def _decision(
@@ -72,9 +127,15 @@ def evaluate_application(
 ) -> ApplicationDecision:
     application = _canonical_object(application)
     validate_contract("application.schema.json", application)
+    reference_errors = validate_application_references(application)
+    if reference_errors:
+        return _decision(application, "defer", reference_errors[0])
     digest = application_digest(application)
     resident_id = application["claimed_resident_id"]
     requested_scopes = set(application["requested_scopes"])
+    acceptance_scope = "registry.application.accept"
+    if acceptance_scope not in requested_scopes:
+        return _decision(application, "defer", "authority_scope_missing")
 
     matching = []
     for authority in authorities:
@@ -99,6 +160,13 @@ def evaluate_application(
 
     authority = active[0]
     authority_ref = authority["authority_id"]
+    if acceptance_scope not in set(authority["scopes"]):
+        return _decision(
+            application,
+            "defer",
+            "authority_scope_missing",
+            authority_ref,
+        )
     if not requested_scopes.issubset(set(authority["scopes"])):
         return _decision(
             application,
@@ -191,12 +259,58 @@ def commit_application(
             "authority_basis_stale", "decision authority changed"
         )
 
+    existing_events = (
+        ()
+        if expected_head is None
+        else read_verified_events(Path(root), expected_head)
+    )
+    grants = _project_authority_grants(existing_events)
+    canonical_authority = _canonical_object(authority)
+    grant_digest = authority_digest(canonical_authority)
+    authority_id = canonical_authority["authority_id"]
+    existing_grant = grants.get(authority_id)
+    if (
+        existing_grant is not None
+        and existing_grant.authority_digest != grant_digest
+    ):
+        raise RALValidationError(
+            "authority_grant_conflict",
+            "authority ID is already bound to different canonical content",
+        )
+    if existing_grant is not None and existing_grant.authority["status"] != "active":
+        raise RALValidationError(
+            "authority_revoked", "only an active canonical grant can authorize"
+        )
+
     ledger_id, first_parents = _existing_context(Path(root), expected_head)
     recorded_time_ref = ctcl_receipt["ctcl_instant_id"]
     recorded_time = ctcl_receipt["reference"]["value"]
     suffix = digest.rsplit(":", 1)[-1][:16]
+    authority_suffix = grant_digest.rsplit(":", 1)[-1][:16]
+    grant_event_id = (
+        existing_grant.grant_event_id
+        if existing_grant is not None
+        else f"evt_authority_granted_{authority_suffix}"
+    )
     decision_ref = f"decision:application:{suffix}"
-    event_specs = (
+    event_specs: list[tuple[str, str, dict[str, object]]] = []
+    if existing_grant is None:
+        event_specs.append(
+            (
+                grant_event_id,
+                "authority.granted",
+                {
+                    "authority": canonical_authority,
+                    "authority_digest": grant_digest,
+                    "authorship_attestation_ref": canonical_authority[
+                        "authorship_attestation_ref"
+                    ],
+                    "authorship_verification_status": "verified",
+                },
+            )
+        )
+    event_specs.extend(
+        (
         (
             f"evt_application_submitted_{suffix}",
             "application.submitted",
@@ -212,7 +326,9 @@ def commit_application(
             {
                 "application_id": application["application_id"],
                 "application_digest": digest,
-                "authority_ref": fresh.authority_ref,
+                "authority_id": fresh.authority_ref,
+                "authority_digest": grant_digest,
+                "authority_grant_event_id": grant_event_id,
                 "decision_ref": decision_ref,
             },
         ),
@@ -233,6 +349,7 @@ def commit_application(
                 "claims": application["claims"],
             },
         ),
+        )
     )
     previous = expected_head
     parents = first_parents
@@ -259,6 +376,8 @@ def commit_application(
         decision_ref=decision_ref,
         application_digest=digest,
         authority_ref=fresh.authority_ref or "",
+        authority_digest=grant_digest,
+        authority_grant_event_id=grant_event_id,
         event_ids=tuple(item.event_id for item in receipts),
         chain_digest=receipts[-1].chain_digest,
     )
@@ -287,12 +406,24 @@ def revoke_authority(
         raise RALValidationError(
             "authority_revoked", "only active authority can be revoked"
         )
+    existing_events = read_verified_events(Path(root), expected_head)
+    grants = _project_authority_grants(existing_events)
+    grant = grants.get(authority["authority_id"])
+    if grant is None:
+        raise RALValidationError(
+            "authority_grant_missing", "authority has no canonical grant event"
+        )
+    if grant.authority_digest != authority_digest(authority):
+        raise RALValidationError(
+            "authority_grant_conflict", "authority differs from canonical grant"
+        )
+    if grant.authority["status"] != "active":
+        raise RALValidationError(
+            "authority_revoked", "only active authority can be revoked"
+        )
     ledger_id, parents = _existing_context(Path(root), expected_head)
     suffix = sha256_ref(revocation).rsplit(":", 1)[-1][:16]
     event_id = f"evt_authority_revoked_{suffix}"
-    revoked = dict(authority)
-    revoked["status"] = "revoked"
-    revoked["revoked_by_event"] = event_id
     return append_event(
         Path(root),
         _event_draft(
@@ -301,7 +432,12 @@ def revoke_authority(
             parent_ids=parents,
             recorded_time_ref=ctcl_receipt["ctcl_instant_id"],
             recorded_time=ctcl_receipt["reference"]["value"],
-            payload={"authority": revoked, "revocation": dict(revocation)},
+            payload={
+                "authority_id": authority["authority_id"],
+                "authority_digest": grant.authority_digest,
+                "authority_grant_event_id": grant.grant_event_id,
+                "revocation": dict(revocation),
+            },
             ledger_id=ledger_id,
         ),
         ctcl_receipt,
@@ -309,13 +445,110 @@ def revoke_authority(
     )
 
 
+def _project_authority_grants(
+    events: Iterable[Mapping[str, object]],
+) -> dict[str, _AuthorityGrant]:
+    grants: dict[str, _AuthorityGrant] = {}
+    for event in sorted(events, key=lambda item: item["ledger_seq"]):
+        event_type = event["event_type"]
+        payload = event["payload"]
+        if event_type == "authority.granted":
+            expected_fields = {
+                "authority",
+                "authority_digest",
+                "authorship_attestation_ref",
+                "authorship_verification_status",
+            }
+            if set(payload) != expected_fields:
+                raise RALValidationError(
+                    "authority_grant_invalid", "grant payload fields differ"
+                )
+            authority = _canonical_object(payload["authority"])
+            validate_authority(authority)
+            digest = authority_digest(authority)
+            if payload["authority_digest"] != digest:
+                raise RALValidationError(
+                    "authority_grant_digest_mismatch",
+                    "authority snapshot does not match its digest",
+                )
+            if (
+                payload["authorship_attestation_ref"]
+                != authority["authorship_attestation_ref"]
+            ):
+                raise RALValidationError(
+                    "authority_grant_attestation_mismatch",
+                    "grant attestation does not match the authority snapshot",
+                )
+            if payload["authorship_verification_status"] != "verified":
+                raise RALValidationError(
+                    "authority_authorship_unverified",
+                    "canonical grants require independently verified authorship",
+                )
+            if authority["status"] != "active":
+                raise RALValidationError(
+                    "authority_grant_inactive", "grant snapshot is not active"
+                )
+            authority_id = authority["authority_id"]
+            previous = grants.get(authority_id)
+            if previous is not None and previous.authority_digest != digest:
+                raise RALValidationError(
+                    "authority_grant_conflict",
+                    "authority ID has conflicting canonical grant content",
+                )
+            if previous is None:
+                grants[authority_id] = _AuthorityGrant(
+                    authority=authority,
+                    authority_digest=digest,
+                    grant_event_id=event["event_id"],
+                )
+            continue
+        if event_type != "authority.revoked":
+            continue
+        expected_fields = {
+            "authority_id",
+            "authority_digest",
+            "authority_grant_event_id",
+            "revocation",
+        }
+        if set(payload) != expected_fields:
+            raise RALValidationError(
+                "authority_revocation_invalid", "revocation payload fields differ"
+            )
+        authority_id = payload["authority_id"]
+        grant = grants.get(authority_id)
+        if grant is None:
+            raise RALValidationError(
+                "authority_grant_missing", "revocation has no prior grant"
+            )
+        if (
+            payload["authority_digest"] != grant.authority_digest
+            or payload["authority_grant_event_id"] != grant.grant_event_id
+        ):
+            raise RALValidationError(
+                "authority_revocation_grant_mismatch",
+                "revocation does not bind the canonical grant",
+            )
+        revocation = payload["revocation"]
+        if (
+            not isinstance(revocation, Mapping)
+            or revocation.get("authority_id") != authority_id
+        ):
+            raise RALValidationError(
+                "authority_revocation_invalid", "revocation authority differs"
+            )
+        revoked = dict(grant.authority)
+        revoked["status"] = "revoked"
+        revoked["revoked_by_event"] = event["event_id"]
+        grants[authority_id] = _AuthorityGrant(
+            authority=revoked,
+            authority_digest=grant.authority_digest,
+            grant_event_id=grant.grant_event_id,
+        )
+    return grants
+
+
 def project_authorities(
     events: Iterable[Mapping[str, object]],
 ) -> tuple[dict[str, object], ...]:
-    authorities: dict[str, dict[str, object]] = {}
-    for event in events:
-        if event["event_type"] != "authority.revoked":
-            continue
-        authority = dict(event["payload"]["authority"])
-        authorities[authority["authority_id"]] = authority
-    return tuple(authorities[key] for key in sorted(authorities))
+    grants = _project_authority_grants(events)
+    return tuple(grants[key].authority for key in sorted(grants))

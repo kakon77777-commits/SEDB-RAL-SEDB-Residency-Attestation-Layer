@@ -4,7 +4,7 @@
   "title": "SEDB-RAL Transcript Binding v0.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "transcript_id", "bindings"],
+  "required": ["schema_version", "transcript_id", "bindings", "turns"],
   "properties": {
     "schema_version": {"const": "0.1"},
     "transcript_id": {"type": "string", "minLength": 1},
@@ -36,6 +36,38 @@
             "then": {"properties": {"verified_backgrounds": {"minItems": 1}, "deficiency_set": {"minItems": 1}}}
           }
         ]
+      }
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["turn_id", "speaker_label", "body", "relay"],
+        "properties": {
+          "turn_id": {"type": "string", "minLength": 1},
+          "speaker_label": {"type": "string", "minLength": 1, "pattern": "^[^\\r\\n:]+$"},
+          "body": {"type": "string"},
+          "relay": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["relayed_by", "relay_is_authorship", "original_claimed_author", "observed_origin"],
+            "properties": {
+              "relayed_by": {"type": "string", "minLength": 1},
+              "relay_is_authorship": {"const": false},
+              "original_claimed_author": {"type": "string", "minLength": 1},
+              "observed_origin": {
+                "type": ["object", "null"],
+                "additionalProperties": false,
+                "required": ["namespace", "locator"],
+                "properties": {
+                  "namespace": {"type": "string", "minLength": 1},
+                  "locator": {"type": "string", "minLength": 1}
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/adapter-matrix.schema.json",
+  "title": "SEDB-RAL Route Adapter Matrix v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routes"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route_id", "source_adapter", "destination_surface", "adapter_submits", "observed_origin"],
+        "properties": {
+          "route_id": {"type": "string", "minLength": 1},
+          "source_adapter": {"type": "string", "minLength": 1},
+          "destination_surface": {"type": "string", "minLength": 1},
+          "adapter_submits": {"$ref": "#/$defs/measurement"},
+          "observed_origin": {"$ref": "#/$defs/measurement"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measurement_status", "observed_value", "evidence_refs", "reason"],
+      "properties": {
+        "measurement_status": {"enum": ["observable", "relay_only", "structurally_unavailable", "unmeasured"]},
+        "observed_value": {"type": ["boolean", "null"]},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "reason": {"type": ["string", "null"], "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"measurement_status": {"const": "observable"}}, "required": ["measurement_status"]},
+          "then": {"properties": {"observed_value": {"type": "boolean"}, "evidence_refs": {"minItems": 1}, "reason": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"measurement_status": {"const": "structurally_unavailable"}}, "required": ["measurement_status"]},
+          "then": {"properties": {"observed_value": {"const": false}, "evidence_refs": {"minItems": 1}, "reason": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "if": {"properties": {"measurement_status": {"const": "relay_only"}}, "required": ["measurement_status"]},
+          "then": {"properties": {"observed_value": {"type": "null"}, "evidence_refs": {"minItems": 1}, "reason": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "if": {"properties": {"measurement_status": {"const": "unmeasured"}}, "required": ["measurement_status"]},
+          "then": {"properties": {"observed_value": {"type": "null"}, "evidence_refs": {"maxItems": 0}, "reason": {"type": "null"}}}
+        }
+      ]
+    }
+  }
+}

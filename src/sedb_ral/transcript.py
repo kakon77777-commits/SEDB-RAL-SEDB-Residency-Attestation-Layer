@@ -55,6 +55,24 @@ def validate_transcript_bindings(value: Mapping[str, object]) -> None:
         raise RALValidationError(
             "rebind_target_missing", "rebind target is not declared"
         )
+    turns = value["turns"]
+    turn_ids = [item["turn_id"] for item in turns]
+    if len(turn_ids) != len(set(turn_ids)):
+        raise RALValidationError("turn_id_duplicate", "duplicate turn ID")
+    binding_by_label = {item["label"]: item for item in bindings}
+    for turn in turns:
+        binding = binding_by_label.get(turn["speaker_label"])
+        if binding is None:
+            raise RALValidationError(
+                "speaker_resolution_indeterminate",
+                "turn speaker is not bound in this transcript",
+            )
+        relay = turn["relay"]
+        if relay is not None and relay["relayed_by"] != binding["bound_identifier"]:
+            raise RALValidationError(
+                "relay_speaker_mismatch",
+                "relay provenance does not identify the actual speaker binding",
+            )
 
 
 def resolve_speaker_label(
@@ -76,12 +94,26 @@ def resolve_speaker_label(
 
 
 def render_turn(
-    binding: Mapping[str, object],
-    body: str,
+    transcript: Mapping[str, object],
+    turn_id: str,
     *,
     rich: bool,
 ) -> str:
+    transcript = _canonical_object(transcript)
+    validate_transcript_bindings(transcript)
+    turn = next(
+        (item for item in transcript["turns"] if item["turn_id"] == turn_id),
+        None,
+    )
+    if turn is None:
+        raise RALValidationError("turn_not_found", str(turn_id))
+    binding = next(
+        item
+        for item in transcript["bindings"]
+        if item["label"] == turn["speaker_label"]
+    )
     label = str(binding["label"])
+    body = str(turn["body"])
     if not rich:
         return f"{label}: {body}"
     escaped_label = html.escape(label, quote=True)

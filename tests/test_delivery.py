@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import sedb_ral.delivery as delivery_module
 from sedb_ral.adapters.codex_queue import normalize_codex_queue
 from sedb_ral.delivery import evaluate_route_predicates, reconstruct_delivery
 from sedb_ral.errors import RALValidationError
@@ -127,14 +128,84 @@ def test_other_adapters_remain_unmeasured():
         (ROOT / "fixtures/adapters/matrix.json").read_text(encoding="utf-8")
     )
 
-    assert matrix["claude_session"]["observed_origin"] == "unmeasured"
-    assert matrix["pmw_fabric"]["adapter_submits"] == "unmeasured"
-    assert matrix["codex_queue"]["observed_origin"] == "observable"
+    delivery_module.validate_adapter_matrix(matrix)
+    routes = {row["route_id"]: row for row in matrix["routes"]}
+    assert routes["claude_session_to_claude_conversation"][
+        "adapter_submits"
+    ] == {
+        "measurement_status": "unmeasured",
+        "observed_value": None,
+        "evidence_refs": [],
+        "reason": None,
+    }
+    assert routes["codex_queue_to_codex_conversation"]["adapter_submits"] == {
+        "measurement_status": "observable",
+        "observed_value": True,
+        "evidence_refs": [
+            "fixture:adapters/codex-queue/transport-accepted.json"
+        ],
+        "reason": None,
+    }
+    pmw = routes["pmw_fabric_herdr_to_codex_tui"]["adapter_submits"]
+    assert pmw["measurement_status"] == "observable"
+    assert pmw["observed_value"] is False
+    assert set(pmw["evidence_refs"]) == {
+        "corpus:incidents.jsonl#24",
+        "evidence:own_execution:incident-24",
+    }
     assert {
-        row["observed_origin"] for row in matrix.values()
+        measurement["measurement_status"]
+        for row in routes.values()
+        for measurement in (row["adapter_submits"], row["observed_origin"])
     } <= {
         "observable",
         "relay_only",
         "structurally_unavailable",
         "unmeasured",
     }
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "unmeasured",
+        True,
+        1,
+        None,
+        {"measurement_status": {"nested": "wrong"}, "observed_value": None},
+    ],
+)
+def test_every_adapter_submits_value_is_strictly_validated(invalid):
+    matrix = json.loads(
+        (ROOT / "fixtures/adapters/matrix.json").read_text(encoding="utf-8")
+    )
+    matrix["routes"][0]["adapter_submits"] = invalid
+
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        delivery_module.validate_adapter_matrix(matrix)
+
+
+def test_route_matrix_feeds_only_strict_boolean_or_null_to_diagnostics():
+    matrix = json.loads(
+        (ROOT / "fixtures/adapters/matrix.json").read_text(encoding="utf-8")
+    )
+
+    assert delivery_module.matrix_adapter_submits(
+        matrix, "codex_queue_to_codex_conversation"
+    ) is True
+    assert delivery_module.matrix_adapter_submits(
+        matrix, "pmw_fabric_herdr_to_codex_tui"
+    ) is False
+    assert delivery_module.matrix_adapter_submits(
+        matrix, "claude_session_to_claude_conversation"
+    ) is None
+    diagnostics = evaluate_route_predicates(
+        {
+            "recipient_agent_reachable": True,
+            "valid_target_lock": True,
+            "adapter_submits": delivery_module.matrix_adapter_submits(
+                matrix, "pmw_fabric_herdr_to_codex_tui"
+            ),
+        }
+    )
+    assert diagnostics.destination_route_ready is False
