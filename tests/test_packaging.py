@@ -104,7 +104,7 @@ def test_validation_record_has_retrievable_registered_anchor():
     assert value["ctcl"]["signature_verification_status"] == "not_performed"
 
 
-def test_readme_names_commands_and_phase_boundaries():
+def test_readme_names_basic_phase1_commands_and_boundaries():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for command in (
         "sedb-ral canonicalize",
@@ -112,15 +112,22 @@ def test_readme_names_commands_and_phase_boundaries():
         "sedb-ral identifier check",
         "sedb-ral ledger verify",
         "sedb-ral phase1a verify",
+        "sedb-ral application check",
+        "sedb-ral project rebuild",
+        "sedb-ral explain claim",
+        "sedb-ral diagnose delivery",
+        "sedb-ral phase1bc verify",
     ):
         assert command in text
     for boundary in (
-        "No SQLite projection",
         "No transport send",
         "No registrar",
-        "No full incident corpus",
+        "No automatic resident, instance, or continuity merge",
+        "No SEDB Phase 2 compatibility profile yet",
     ):
         assert boundary in text
+    assert "disposable SQLite projections" in text
+    assert "machine-consumed 29-row incident corpus" in text
 
 
 def test_sdist_normalization_removes_archive_time_variance(tmp_path):
