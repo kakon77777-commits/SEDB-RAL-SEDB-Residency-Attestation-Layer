@@ -1,0 +1,41 @@
+{
+  "schema_version": "0.1",
+  "ctcl_instant_id": "ctcl:instant:5a76bd1b-2db2-463b-b2ad-0b1307102710",
+  "ctcl_call_kind": "registered_anchor",
+  "reference": {
+    "timescale": "utc",
+    "value": "2026-08-23T08:09:39.165Z"
+  },
+  "encodings": {
+    "unix_ms": "1787472579165",
+    "unix_ns": "1787472579165000000",
+    "rfc3339": "2026-08-23T08:09:39.165Z"
+  },
+  "source": {
+    "class": "wall_clock",
+    "protocol": null,
+    "provider": null,
+    "sync_status": "unreported"
+  },
+  "quality": {
+    "precision": null,
+    "estimated_uncertainty_ns": null,
+    "synchronized": null,
+    "note": "ctcl_register_instant did not report clock quality fields"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "ctcl-ed25519-1",
+    "signed_fields": "instant_id|unix_ns|timescale",
+    "value": "FuzXlb1Fs4tRbf85PuVABWeZBTHNMKRaLaQRBvRu7+u6NG96OfZWuk+jYeX8mMu0Hr8uV9pLGTIcmHM0S9c0AQ==",
+    "verify_endpoint": "/v1/pubkey",
+    "verification_status": "not_performed"
+  },
+  "retrievability": {
+    "expected": true,
+    "status": "verified",
+    "checked_at_ref": null,
+    "retrieval_evidence_ref": "evidence/ctcl/2026-08-23-initial-design-commit-intent.json"
+  },
+  "service_returned_share_url": "https://commoninstant.org/i/5a76bd1b-2db2-463b-b2ad-0b1307102710"
+}
