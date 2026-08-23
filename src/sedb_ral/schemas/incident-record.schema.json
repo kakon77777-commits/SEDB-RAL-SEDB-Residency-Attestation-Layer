@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/incident-record.schema.json",
+  "title": "SEDB-RAL Incident Record v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cls", "title", "actor_claim", "origin_strength", "scope", "why", "status", "temporal_capture_mode", "retro_stamped", "observed_time_ref", "recorded_time_ref"],
+  "properties": {
+    "id": {"type": "integer", "minimum": 1},
+    "cls": {"enum": ["A", "B", "C", "D", "E", "F"]},
+    "title": {"type": "string", "minLength": 1},
+    "actor_claim": {"type": "string", "minLength": 1},
+    "origin_strength": {"enum": ["own_execution", "peer_assertion", "peer_transcript", "peer_assertion_verified"]},
+    "scope": {"type": "string", "minLength": 1},
+    "why": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "temporal_capture_mode": {"enum": ["contemporaneous", "retrospective"]},
+    "retro_stamped": {"type": "boolean"},
+    "observed_time_ref": {"type": ["string", "null"]},
+    "recorded_time_ref": {"type": "string", "minLength": 1},
+    "corrected_by": {"type": "string", "minLength": 1},
+    "fix": {"type": "string", "minLength": 1},
+    "found_by": {"type": "string", "minLength": 1},
+    "lesson": {"type": "string", "minLength": 1},
+    "note": {"type": "string", "minLength": 1},
+    "severity": {"type": "string", "minLength": 1}
+  }
+}

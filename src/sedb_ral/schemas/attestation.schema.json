@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/attestation.schema.json",
+  "title": "SEDB-RAL Attestation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attestation_id", "claim_ref", "evidence_basis", "evidence_root_refs", "derivation_parent_refs", "independence_status", "verification_status"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "attestation_id": {"type": "string", "minLength": 1},
+    "claim_ref": {"type": "string", "minLength": 1},
+    "evidence_basis": {"enum": ["peer_assertion", "filesystem_observation", "own_execution", "peer_transcript_observation", "receiver_transport_observation", "peer_assertion_verified"]},
+    "evidence_root_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "derivation_parent_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "independence_status": {"enum": ["independent", "shared_root", "indeterminate", "unmeasured"]},
+    "verification_status": {"enum": ["unverified", "verified", "failed", "unavailable"]}
+  }
+}

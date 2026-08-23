@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/observation.schema.json",
+  "title": "SEDB-RAL Observation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "observation_id", "observer_ref", "subject_ref", "source_expression", "measurement_scope", "observed_value", "observed_time_ref", "claimed_origin", "observed_origin"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "observation_id": {"type": "string", "minLength": 1},
+    "observer_ref": {"type": "string", "minLength": 1},
+    "subject_ref": {"type": "string", "minLength": 1},
+    "source_expression": {"type": "string", "minLength": 1},
+    "measurement_scope": {"type": "string", "minLength": 1},
+    "observed_value": {},
+    "observed_time_ref": {"type": ["string", "null"]},
+    "claimed_origin": {"type": ["string", "null"]},
+    "observed_origin": {"type": ["string", "null"]}
+  }
+}

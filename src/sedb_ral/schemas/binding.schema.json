@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/binding.schema.json",
+  "title": "SEDB-RAL Binding v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "binding_id", "subject_ref", "object_kind", "object_ref", "valid_from_event", "valid_until_event"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "binding_id": {"type": "string", "minLength": 1},
+    "subject_ref": {"type": "string", "minLength": 1},
+    "object_kind": {"enum": ["address", "instance", "role", "runtime", "model", "project"]},
+    "object_ref": {"type": "string", "minLength": 1},
+    "valid_from_event": {"type": "string", "minLength": 1},
+    "valid_until_event": {"type": ["string", "null"]}
+  }
+}

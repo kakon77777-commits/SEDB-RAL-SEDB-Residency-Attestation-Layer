@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/application.schema.json",
+  "title": "SEDB-RAL Application v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "application_id", "claimed_resident_id", "display_label", "instance_claims", "addresses", "claims", "submitted_time_ref", "requested_scopes"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "application_id": {"type": "string", "minLength": 1},
+    "claimed_resident_id": {"type": "string", "minLength": 1},
+    "display_label": {"type": "string", "minLength": 1},
+    "instance_claims": {"type": "array", "items": {"$ref": "instance.schema.json"}},
+    "addresses": {"type": "array", "items": {"$ref": "address.schema.json"}},
+    "claims": {"type": "array", "items": {"$ref": "claim.schema.json"}},
+    "submitted_time_ref": {"type": "string", "minLength": 1},
+    "requested_scopes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

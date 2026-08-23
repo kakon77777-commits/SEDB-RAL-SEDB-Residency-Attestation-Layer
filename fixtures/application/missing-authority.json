@@ -1,0 +1,41 @@
+{
+  "application": {
+    "schema_version": "0.1",
+    "application_id": "application:test:1",
+    "claimed_resident_id": "resident:test",
+    "display_label": "Test Resident",
+    "instance_claims": [
+      {
+        "schema_version": "0.1",
+        "instance_id": "instance:test:1",
+        "resident_ref": "resident:test",
+        "runtime_tag": "runtime:claude-code",
+        "started_time_ref": "ctcl:instant:03a45699-68b2-4578-99e4-ef83a626c30d",
+        "ended_time_ref": null
+      }
+    ],
+    "addresses": [],
+    "claims": [
+      {
+        "schema_version": "0.1",
+        "claim_id": "claim:test:1",
+        "claimant_ref": "resident:test",
+        "subject_ref": "resident:test",
+        "predicate": "display_label",
+        "object": "Test Resident",
+        "claimed_time": null,
+        "claimed_authored_by_instance": "instance:test:1",
+        "claimed_on_behalf_of_line": null
+      }
+    ],
+    "submitted_time_ref": "ctcl:instant:03a45699-68b2-4578-99e4-ef83a626c30d",
+    "requested_scopes": [
+      "registry.application.accept"
+    ]
+  },
+  "authorities": [],
+  "expected_decision": "defer",
+  "expected_reason_codes": [
+    "authority_missing"
+  ]
+}

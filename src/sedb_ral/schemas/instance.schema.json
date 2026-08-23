@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/instance.schema.json",
+  "title": "SEDB-RAL Instance v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "instance_id", "resident_ref", "runtime_tag", "started_time_ref", "ended_time_ref"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "instance_id": {"type": "string", "minLength": 1},
+    "resident_ref": {"type": "string", "minLength": 1},
+    "runtime_tag": {"type": ["string", "null"]},
+    "started_time_ref": {"type": "string", "minLength": 1},
+    "ended_time_ref": {"type": ["string", "null"]}
+  }
+}

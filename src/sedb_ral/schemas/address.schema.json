@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/address.schema.json",
+  "title": "SEDB-RAL Address v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "address_id", "namespace", "adapter_kind", "locator", "target_ref", "status"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "address_id": {"type": "string", "minLength": 1},
+    "namespace": {"type": "string", "minLength": 1},
+    "adapter_kind": {"type": "string", "minLength": 1},
+    "locator": {"type": "string", "minLength": 1},
+    "target_ref": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "suspended", "revoked", "unknown"]}
+  }
+}
