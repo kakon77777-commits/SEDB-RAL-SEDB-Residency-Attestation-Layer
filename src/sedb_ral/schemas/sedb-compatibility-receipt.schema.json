@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/sedb-compatibility-receipt.schema.json",
+  "title": "SEDB Compatibility Receipt v0.1 and v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "adoption_profile_id",
+    "adoption_profile_version",
+    "mapping_profile_id",
+    "mapping_profile_version",
+    "compatibility_status",
+    "adoption_status",
+    "evidence_refs"
+  ],
+  "properties": {
+    "schema_version": {"enum": ["0.1", "0.2"]},
+    "compatibility_subject_id": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+    },
+    "receipt_id": {
+      "type": ["string", "null"]
+    },
+    "passed": {"type": "boolean"},
+    "adoption_profile_id": {"const": "sedb-v0.4b-adoption"},
+    "adoption_profile_version": {"const": "1"},
+    "mapping_profile_id": {"const": "sedb-v0.4b-mapping"},
+    "mapping_profile_version": {"const": "1"},
+    "compatibility_status": {
+      "enum": ["compatible", "incompatible", "indeterminate"]
+    },
+    "adoption_status": {"enum": ["adopted", "rejected"]},
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "size", "sha256"],
+      "properties": {
+        "filename": {"const": "SEDB-v0.4B-local.zip"},
+        "size": {"const": 8980052},
+        "sha256": {
+          "const": "159F0928415811A434E885D50E94846266474725723D25DAC426170874B844D8"
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "expected_entry_count",
+        "observed_entry_count",
+        "verified"
+      ],
+      "properties": {
+        "path": {"const": "MANIFEST.sha256"},
+        "expected_entry_count": {"const": 114},
+        "observed_entry_count": {"type": "integer", "minimum": 0},
+        "verified": {"type": "boolean"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "source_commit"],
+      "properties": {
+        "name": {"const": "sedb-local"},
+        "version": {"type": ["string", "null"]},
+        "source_commit": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "mapping_profile_digest": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+    },
+    "phase1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase1a", "phase1bc", "projection_head"],
+      "properties": {
+        "phase1a": {"type": ["object", "null"]},
+        "phase1bc": {"type": ["object", "null"]},
+        "projection_head": {"type": ["string", "null"]}
+      }
+    },
+    "integration": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "database_integrity",
+            "field_count",
+            "entity_count",
+            "cell_count",
+            "expected_record_count",
+            "exported_record_count",
+            "records_match",
+            "raw_export_sha256",
+            "normalized_export_digest"
+          ],
+          "properties": {
+            "database_integrity": {"type": "string"},
+            "field_count": {"type": "integer", "minimum": 0},
+            "entity_count": {"type": "integer", "minimum": 0},
+            "cell_count": {"type": "integer", "minimum": 0},
+            "expected_record_count": {"type": "integer", "minimum": 0},
+            "exported_record_count": {"type": "integer", "minimum": 0},
+            "records_match": {"type": "boolean"},
+            "raw_export_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "normalized_export_digest": {
+              "type": "string",
+              "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "differential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "counts", "differences"],
+      "properties": {
+        "passed": {"type": "boolean"},
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expected_by_mapping",
+            "unmapped",
+            "contradiction"
+          ],
+          "properties": {
+            "expected_by_mapping": {"type": "integer", "minimum": 0},
+            "unmapped": {"type": "integer", "minimum": 0},
+            "contradiction": {"type": "integer", "minimum": 0}
+          }
+        },
+        "differences": {"type": "array"}
+      }
+    },
+    "sedb_tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected_source", "package_claim", "own_execution"],
+      "properties": {
+        "selected_source": {"enum": ["package_claim", "own_execution"]},
+        "package_claim": {"type": ["string", "null"]},
+        "own_execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "failed",
+            "skipped",
+            "fresh_execution",
+            "inherited_from"
+          ],
+          "properties": {
+            "passed": {"const": 189},
+            "failed": {"const": 0},
+            "skipped": {"const": 0},
+            "fresh_execution": {"const": false},
+            "inherited_from": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "executed_controls": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "injected_change",
+          "expected_code",
+          "observed_code",
+          "executed"
+        ],
+        "properties": {
+          "name": {
+            "enum": [
+              "archive_hash",
+              "manifest",
+              "mapping_contradiction",
+              "null_vs_false",
+              "no_send"
+            ]
+          },
+          "injected_change": {"type": "string", "minLength": 1},
+          "expected_code": {"type": "string", "minLength": 1},
+          "observed_code": {"type": "string", "minLength": 1},
+          "executed": {"type": "boolean"}
+        }
+      }
+    },
+    "signature_presence": {"const": "not_performed"},
+    "ctcl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "instant_id",
+        "register_response",
+        "retrieve_response"
+      ],
+      "properties": {
+        "state": {"enum": ["CTCL_FINAL_PENDING", "finalized"]},
+        "instant_id": {"type": ["string", "null"]},
+        "register_response": {"type": ["object", "null"]},
+        "retrieve_response": {"type": ["object", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "finalized"}}},
+          "then": {
+            "properties": {
+              "instant_id": {"type": "string", "minLength": 1},
+              "register_response": {"type": "object"},
+              "retrieve_response": {"type": "object"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"state": {"const": "CTCL_FINAL_PENDING"}}},
+          "then": {
+            "properties": {
+              "instant_id": {"type": "null"},
+              "register_response": {"type": "null"},
+              "retrieve_response": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "error_codes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "0.2"}},
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": [
+          "compatibility_subject_id",
+          "receipt_id",
+          "passed",
+          "archive",
+          "manifest",
+          "package",
+          "mapping_profile_digest",
+          "phase1",
+          "integration",
+          "differential",
+          "sedb_tests",
+          "executed_controls",
+          "signature_presence",
+          "ctcl",
+          "error_codes"
+        ],
+        "properties": {
+          "package": {
+            "properties": {
+              "name": {"const": "sedb-local"},
+              "version": {"const": "0.4.0b1"},
+              "source_commit": {
+                "const": "139b9952bb283b2e95f7690d76e3c5fbcdc680aa"
+              }
+            }
+          },
+          "mapping_profile_digest": {
+            "const": "sha256:sedb-ral-json-nfc-codepoint-v1:07d67d5135b97ba8a9521e3f6c33a6897e64ec65422a02cabea6cb0c398d9ef5"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": "0.2"},
+          "passed": {"const": true}
+        },
+        "required": ["schema_version", "passed"]
+      },
+      "then": {
+        "properties": {
+          "compatibility_status": {"const": "compatible"},
+          "adoption_status": {"const": "adopted"},
+          "executed_controls": {"minItems": 5, "maxItems": 5},
+          "error_codes": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "0.1"}},
+        "required": ["schema_version"]
+      },
+      "then": {
+        "properties": {
+          "receipt_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": "0.2"},
+          "ctcl": {
+            "properties": {"state": {"const": "finalized"}},
+            "required": ["state"]
+          }
+        },
+        "required": ["schema_version", "ctcl"]
+      },
+      "then": {
+        "properties": {
+          "receipt_id": {
+            "type": "string",
+            "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": "0.2"},
+          "ctcl": {
+            "properties": {"state": {"const": "CTCL_FINAL_PENDING"}},
+            "required": ["state"]
+          }
+        },
+        "required": ["schema_version", "ctcl"]
+      },
+      "then": {
+        "properties": {"receipt_id": {"type": "null"}}
+      }
+    }
+  ]
+}

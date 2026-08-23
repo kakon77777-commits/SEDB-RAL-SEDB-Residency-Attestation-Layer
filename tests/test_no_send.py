@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+import sedb_ral.no_send as no_send
 from sedb_ral.no_send import scan_no_send
 
 ROOT = Path(__file__).parents[1]
@@ -7,6 +10,35 @@ ROOT = Path(__file__).parents[1]
 
 def test_source_tree_contains_no_send_capability():
     assert scan_no_send(ROOT / "src/sedb_ral") == ()
+
+
+def test_task5_script_allows_only_its_isolated_sedb_imports():
+    scanner = getattr(no_send, "scan_task5_no_send", None)
+
+    assert callable(scanner), "Task 5 executable boundary is not scanned"
+    assert scanner(ROOT / "scripts/validate_sedb_v04b.py") == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_code"),
+    [
+        ("import requests\nrequests.get('https://example.test')\n", "forbidden_import:requests"),
+        ("import urllib\nurllib.request.urlopen('https://example.test')\n", "forbidden_import:urllib"),
+        ("import http\nhttp.client.HTTPConnection('example.test')\n", "forbidden_import:http"),
+        ("import subprocess\nsubprocess.run(['echo'])\n", "forbidden_import:subprocess"),
+        ("from sedb.runtime import Runtime\n", "forbidden_import:sedb"),
+    ],
+    ids=["requests", "urllib", "http", "subprocess", "unapproved-sedb"],
+)
+def test_task5_script_rejects_network_process_and_other_sedb_imports(
+    tmp_path, source, expected_code
+):
+    script = tmp_path / "validate_sedb_v04b.py"
+    script.write_text(source, encoding="utf-8")
+
+    assert expected_code in {
+        finding.code for finding in no_send.scan_task5_no_send(script)
+    }
 
 
 def test_missing_package_root_is_not_a_clean_scan(tmp_path):

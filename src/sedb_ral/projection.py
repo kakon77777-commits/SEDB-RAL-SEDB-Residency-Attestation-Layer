@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
@@ -24,6 +24,9 @@ class RegistryProjection:
     unapplied_event_ids: tuple[str, ...]
     unapplied_reasons: dict[str, str]
     source_event_ids: tuple[str, ...]
+    attestations: dict[str, tuple[dict[str, object], ...]] = field(
+        default_factory=dict
+    )
 
 
 def _copy(value: object) -> object:
@@ -40,6 +43,8 @@ def project_events(
     applications: dict[str, dict[str, object]] = {}
     residents: dict[str, dict[str, object]] = {}
     claims: dict[str, dict[str, object]] = {}
+    resident_claim_owners: dict[str, str] = {}
+    attestations: dict[str, list[dict[str, object]]] = {}
     resident_source_event_ids: dict[str, str] = {}
     authority_grants: dict[str, tuple[str, str]] = {}
     revoked_authority_grants: set[str] = set()
@@ -155,6 +160,7 @@ def project_events(
             resident["claims"] = _copy(payload["claims"])
             resident_id = str(resident["resident_id"])
             residents[resident_id] = resident
+            attestations.setdefault(resident_id, [])
             resident_source_event_ids[resident_id] = event_id
             event_entities[event_id].add(("resident", resident_id))
             for instance in resident["instances"]:
@@ -168,6 +174,7 @@ def project_events(
             for claim in resident["claims"]:
                 claim_id = str(claim["claim_id"])
                 claims[claim_id] = claim
+                resident_claim_owners[claim_id] = resident_id
                 event_entities[event_id].add(("claim", claim_id))
             continue
 
@@ -177,6 +184,27 @@ def project_events(
             claim_id = str(claim["claim_id"])
             claims[claim_id] = claim
             event_entities[event_id].add(("claim", claim_id))
+            continue
+
+        if event_type == "attestation.recorded":
+            try:
+                attestation = _copy(payload["attestation"])
+                validate_contract("attestation.schema.json", attestation)
+            except (KeyError, TypeError, RALValidationError):
+                mark_unapplied(event_id, "attestation_contract_invalid")
+                continue
+            claim_ref = str(attestation["claim_ref"])
+            if claim_ref not in claims:
+                mark_unapplied(event_id, "attestation_claim_missing")
+                continue
+            resident_id = resident_claim_owners.get(claim_ref)
+            if resident_id is None:
+                mark_unapplied(event_id, "attestation_claim_unowned")
+                continue
+            attestations[resident_id].append(attestation)
+            event_entities[event_id].add(
+                ("attestation", str(attestation["attestation_id"]))
+            )
             continue
 
         if event_type == "authority.revoked":
@@ -298,6 +326,13 @@ def project_events(
         unapplied_event_ids=tuple(unapplied),
         unapplied_reasons=unapplied_reasons,
         source_event_ids=tuple(source_ids),
+        attestations={
+            resident_id: tuple(
+                sorted(values, key=lambda value: str(value["attestation_id"]))
+            )
+            for resident_id, values in sorted(attestations.items())
+            if resident_id in residents
+        },
     )
 
 
