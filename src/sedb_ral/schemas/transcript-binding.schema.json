@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/transcript-binding.schema.json",
+  "title": "SEDB-RAL Transcript Binding v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "transcript_id", "bindings"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "transcript_id": {"type": "string", "minLength": 1},
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "bound_identifier", "identifier_kind", "bound_at_ref", "scope", "rebinds", "visual_token", "visual_scope", "palette_version", "contrast_standard", "verified_backgrounds", "deficiency_set", "accessibility_verification_status"],
+        "properties": {
+          "label": {"type": "string", "minLength": 1, "pattern": "^[^\\r\\n:]+$"},
+          "bound_identifier": {"type": "string", "minLength": 1},
+          "identifier_kind": {"enum": ["principal", "session_uuid", "codex_thread", "resident_id", "line"]},
+          "bound_at_ref": {"type": "string", "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+          "scope": {"const": "transcript"},
+          "rebinds": {"type": ["string", "null"]},
+          "visual_token": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._-]+$"},
+          "visual_scope": {"const": "transcript"},
+          "palette_version": {"type": "string", "minLength": 1},
+          "contrast_standard": {"type": "string", "minLength": 1},
+          "verified_backgrounds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}},
+          "deficiency_set": {"type": "array", "uniqueItems": true, "items": {"enum": ["protanopia", "deuteranopia", "tritanopia"]}},
+          "accessibility_verification_status": {"enum": ["unmeasured", "verified", "failed"]}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"accessibility_verification_status": {"const": "verified"}}, "required": ["accessibility_verification_status"]},
+            "then": {"properties": {"verified_backgrounds": {"minItems": 1}, "deficiency_set": {"minItems": 1}}}
+          }
+        ]
+      }
+    }
+  }
+}
