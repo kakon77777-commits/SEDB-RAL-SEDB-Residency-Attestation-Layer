@@ -1,12 +1,12 @@
 import hashlib
 import json
+import os
 import stat
 import zipfile
 from pathlib import Path
 
 import pytest
 
-import sedb_ral.sedb_adoption as adoption
 from sedb_ral.sedb_adoption import (
     extract_verified_sedb,
     inspect_sedb_archive,
@@ -195,6 +195,71 @@ def test_symlink_member_is_rejected(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "unsafe_name",
+    [
+        f"{PACKAGE_ROOT}/data/trailing-dot.",
+        f"{PACKAGE_ROOT}/data/trailing-space ",
+        f"{PACKAGE_ROOT}/data/payload.txt:stream",
+        f"{PACKAGE_ROOT}/data/CON.txt",
+        f"{PACKAGE_ROOT}/data/COM\u00b9.txt",
+    ],
+    ids=[
+        "trailing-dot",
+        "trailing-space",
+        "ntfs-ads",
+        "reserved-device",
+        "unicode-reserved-device",
+    ],
+)
+def test_each_windows_hazardous_component_is_rejected(tmp_path, unsafe_name):
+    archive = tmp_path / "windows-hazard.zip"
+    write_package_with_extra_info(archive, zipfile.ZipInfo(unsafe_name))
+
+    result = inspect_sedb_archive(archive, archive_profile(archive))
+
+    assert result.error_codes == ("archive_path_unsafe",)
+    target = tmp_path / "target"
+    with pytest.raises(ValueError, match="archive_path_unsafe"):
+        extract_verified_sedb(archive, archive_profile(archive), target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("first_name", "second_name"),
+    [
+        ("data/Case.txt", "data/case.txt"),
+        ("data/caf\u00e9.txt", "data/cafe\u0301.txt"),
+        ("data/A.txt", "data/\uff21.txt"),
+        ("data/slash.txt", r"data\slash.txt"),
+    ],
+    ids=["casefold", "unicode-nfc", "unicode-nfkc", "slash-normalized"],
+)
+def test_windows_equivalent_member_names_are_rejected(
+    tmp_path, first_name, second_name
+):
+    archive = tmp_path / "windows-collision.zip"
+    members = package_members()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for name, payload in members.items():
+            bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
+        bundle.writestr(
+            f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
+        )
+        bundle.writestr(f"{PACKAGE_ROOT}/{first_name}", b"first")
+        second_info = zipfile.ZipInfo("placeholder")
+        second_info.filename = f"{PACKAGE_ROOT}/{second_name}"
+        bundle.writestr(second_info, b"second")
+
+    result = inspect_sedb_archive(archive, archive_profile(archive))
+
+    assert result.error_codes == ("archive_path_unsafe",)
+    target = tmp_path / "target"
+    with pytest.raises(ValueError, match="archive_path_unsafe"):
+        extract_verified_sedb(archive, archive_profile(archive), target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
     ("field", "value", "error_code"),
     [
         ("package_name", "sedb-other", "package_name_mismatch"),
@@ -257,30 +322,55 @@ def test_verified_archive_extracts_members_without_extractall(tmp_path, monkeypa
     assert (target / PACKAGE_ROOT / "MANIFEST.sha256").is_file()
 
 
-def test_archive_replacement_after_inspection_is_rejected(tmp_path, monkeypatch):
+def test_same_size_archive_replacement_cannot_change_extracted_bytes(
+    tmp_path, monkeypatch
+):
     archive = tmp_path / "package.zip"
-    write_package(archive)
+    members = write_package(archive)
     profile = archive_profile(archive)
     target = tmp_path / "new-target"
-    original_inspect = adoption.inspect_sedb_archive
+    archive_size = archive.stat().st_size
+    original_open = Path.open
+    read_open_count = 0
     mutated = False
 
-    def inspect_then_replace(archive_path, candidate_profile):
-        nonlocal mutated
-        result = original_inspect(archive_path, candidate_profile)
-        if not mutated:
-            replacement = package_members()
-            replacement["data/payload.txt"] = b"replacement payload\n"
-            write_package(Path(archive_path), members=replacement)
-            mutated = True
-        return result
+    class ReplaceAfterClose:
+        def __init__(self, source):
+            self.source = source
 
-    monkeypatch.setattr(adoption, "inspect_sedb_archive", inspect_then_replace)
+        def __getattr__(self, name):
+            return getattr(self.source, name)
 
-    with pytest.raises(ValueError, match=r"archive_(size|hash)_mismatch"):
-        adoption.extract_verified_sedb(archive, profile, target)
+        def __enter__(self):
+            return self
 
-    assert not target.exists()
+        def __exit__(self, exc_type, exc_value, traceback):
+            nonlocal mutated
+            self.source.close()
+            if not mutated:
+                with original_open(archive, "wb") as replacement:
+                    replacement.write(b"\0" * archive_size)
+                mutated = True
+
+    def replace_after_verified_read(path, mode="r", *args, **kwargs):
+        nonlocal read_open_count
+        source = original_open(path, mode, *args, **kwargs)
+        if Path(path) == archive and mode == "rb":
+            read_open_count += 1
+            return ReplaceAfterClose(source)
+        return source
+
+    monkeypatch.setattr(Path, "open", replace_after_verified_read)
+
+    extracted = extract_verified_sedb(archive, profile, target)
+
+    assert mutated is True
+    assert read_open_count == 1
+    assert archive.stat().st_size == archive_size
+    assert archive.read_bytes() == b"\0" * archive_size
+    assert (extracted / PACKAGE_ROOT / "data/payload.txt").read_bytes() == members[
+        "data/payload.txt"
+    ]
 
 
 def test_extraction_requires_a_new_target_and_preserves_existing_content(tmp_path):
@@ -295,3 +385,69 @@ def test_extraction_requires_a_new_target_and_preserves_existing_content(tmp_pat
         extract_verified_sedb(archive, archive_profile(archive), target)
 
     assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_copy_failure_never_deletes_a_swapped_staging_directory(
+    tmp_path, monkeypatch
+):
+    archive = tmp_path / "package.zip"
+    write_package(archive)
+    target = tmp_path / "published"
+    original_open = Path.open
+    swapped_root: Path | None = None
+    replacement_sentinel: Path | None = None
+
+    def swap_staging_then_fail(path, mode="r", *args, **kwargs):
+        nonlocal swapped_root, replacement_sentinel
+        candidate = Path(path)
+        if (
+            mode == "xb"
+            and swapped_root is None
+            and candidate.is_relative_to(tmp_path)
+        ):
+            staging = next(
+                parent for parent in candidate.parents if parent.parent == tmp_path
+            )
+            owned = staging.with_name(f"{staging.name}.owned")
+            staging.rename(owned)
+            staging.mkdir()
+            replacement_sentinel = staging / "unrelated.txt"
+            with original_open(replacement_sentinel, "w", encoding="utf-8") as stream:
+                stream.write("do not delete")
+            swapped_root = staging
+            raise OSError("injected_copy_failure")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", swap_staging_then_fail)
+
+    with pytest.raises(
+        (OSError, RuntimeError),
+        match="injected_copy_failure|staging_identity_mismatch",
+    ):
+        extract_verified_sedb(archive, archive_profile(archive), target)
+
+    assert swapped_root is not None
+    assert swapped_root != target
+    assert replacement_sentinel is not None
+    assert replacement_sentinel.read_text(encoding="utf-8") == "do not delete"
+    assert not target.exists()
+
+
+def test_target_appearing_at_publish_is_preserved(tmp_path, monkeypatch):
+    archive = tmp_path / "package.zip"
+    write_package(archive)
+    target = tmp_path / "published"
+    sentinel = target / "unrelated.txt"
+    original_rename = os.rename
+
+    def target_appears_before_publish(source, destination, *args, **kwargs):
+        Path(destination).mkdir()
+        sentinel.write_text("do not replace", encoding="utf-8")
+        return original_rename(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", target_appears_before_publish)
+
+    with pytest.raises(FileExistsError):
+        extract_verified_sedb(archive, archive_profile(archive), target)
+
+    assert sentinel.read_text(encoding="utf-8") == "do not replace"

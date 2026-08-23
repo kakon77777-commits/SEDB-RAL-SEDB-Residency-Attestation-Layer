@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import errno
 import hashlib
+import io
+import os
 import re
 import shutil
 import stat
+import sys
+import tempfile
 import tomllib
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Mapping
+from typing import Mapping
 
 
 _MANIFEST_LINE = re.compile(r"^([0-9a-fA-F]{64})  (.+)$")
 _SOURCE_COMMIT_LINE = re.compile(r"^source_commit:\s*([0-9a-fA-F]{40})\s*$")
+_WINDOWS_RESERVED_COMPONENTS = frozenset(
+    {"aux", "clock$", "con", "conin$", "conout$", "nul", "prn"}
+    | {f"com{number}" for number in range(1, 10)}
+    | {f"lpt{number}" for number in range(1, 10)}
+)
 
 
 @dataclass(frozen=True)
@@ -45,32 +56,43 @@ def _inspection_failure(
     )
 
 
-def _sha256_stream(source: BinaryIO) -> str:
-    digest = hashlib.sha256()
-    source.seek(0)
-    for chunk in iter(lambda: source.read(1024 * 1024), b""):
-        digest.update(chunk)
-    return digest.hexdigest()
+def _read_archive_snapshot(path: Path) -> bytes:
+    with path.open("rb") as source:
+        return source.read()
 
 
 def _safe_member_parts(name: str) -> tuple[str, ...] | None:
     normalized = name.replace("\\", "/")
     if not normalized or normalized.startswith("/"):
         return None
-    if re.match(r"^[A-Za-z]:", normalized):
+
+    without_directory_marker = (
+        normalized[:-1] if normalized.endswith("/") else normalized
+    )
+    raw_parts = tuple(without_directory_marker.split("/"))
+    if not raw_parts:
         return None
 
-    without_directory_marker = normalized[:-1] if normalized.endswith("/") else normalized
-    parts = tuple(without_directory_marker.split("/"))
-    if not parts or any(part in {"", ".", ".."} for part in parts):
-        return None
-    return parts
+    parts: list[str] = []
+    for raw_part in raw_parts:
+        part = unicodedata.normalize("NFKC", raw_part)
+        windows_stem = part.casefold().split(".", 1)[0]
+        if (
+            part in {"", ".", ".."}
+            or part.endswith((".", " "))
+            or ":" in part
+            or windows_stem in _WINDOWS_RESERVED_COMPONENTS
+        ):
+            return None
+        parts.append(part)
+    return tuple(parts)
 
 
 def _validated_members(
     bundle: zipfile.ZipFile,
 ) -> tuple[dict[str, zipfile.ZipInfo], tuple[str, ...]]:
     members: dict[str, zipfile.ZipInfo] = {}
+    canonical_keys: set[str] = set()
     for info in bundle.infolist():
         parts = _safe_member_parts(info.filename)
         unix_mode = info.external_attr >> 16
@@ -78,8 +100,10 @@ def _validated_members(
             return {}, ("archive_path_unsafe",)
 
         canonical_name = "/".join(parts)
-        if canonical_name in members:
+        canonical_key = "/".join(part.casefold() for part in parts)
+        if canonical_key in canonical_keys:
             return {}, ("archive_path_unsafe",)
+        canonical_keys.add(canonical_key)
         members[canonical_name] = info
     return members, ()
 
@@ -121,6 +145,7 @@ def _parse_manifest(payload: bytes) -> dict[str, str] | None:
         return None
 
     entries: dict[str, str] = {}
+    canonical_keys: set[str] = set()
     for line in lines:
         if not line:
             continue
@@ -132,8 +157,10 @@ def _parse_manifest(payload: bytes) -> dict[str, str] | None:
         if parts is None:
             return None
         canonical_name = "/".join(parts)
-        if canonical_name in entries:
+        canonical_key = "/".join(part.casefold() for part in parts)
+        if canonical_key in canonical_keys:
             return None
+        canonical_keys.add(canonical_key)
         entries[canonical_name] = digest.lower()
     return entries
 
@@ -233,14 +260,13 @@ def _inspect_zip(
     )
 
 
-def _inspect_open_archive(
+def _inspect_snapshot(
     archive_path: Path,
     profile: Mapping[str, object],
-    source: BinaryIO,
+    snapshot: bytes,
 ) -> SEDBAdoptionInspection:
-    source.seek(0, 2)
-    archive_size = source.tell()
-    archive_sha256 = _sha256_stream(source)
+    archive_size = len(snapshot)
+    archive_sha256 = hashlib.sha256(snapshot).hexdigest()
     if archive_path.name != profile.get("archive_filename"):
         return _inspection_failure(archive_sha256, "archive_filename_mismatch")
 
@@ -257,8 +283,7 @@ def _inspect_open_archive(
         return _inspection_failure(archive_sha256, "archive_hash_mismatch")
 
     try:
-        source.seek(0)
-        with zipfile.ZipFile(source, "r") as bundle:
+        with zipfile.ZipFile(io.BytesIO(snapshot), "r") as bundle:
             return _inspect_zip(bundle, profile, archive_sha256)
     except (OSError, zipfile.BadZipFile):
         return _inspection_failure(archive_sha256, "archive_invalid")
@@ -269,10 +294,66 @@ def inspect_sedb_archive(
 ) -> SEDBAdoptionInspection:
     archive_path = Path(archive)
     try:
-        with archive_path.open("rb") as source:
-            return _inspect_open_archive(archive_path, profile, source)
+        snapshot = _read_archive_snapshot(archive_path)
+        return _inspect_snapshot(archive_path, profile, snapshot)
     except OSError:
         return _inspection_failure("", "archive_unavailable")
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    metadata = path.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise RuntimeError("staging_identity_mismatch")
+    return metadata.st_dev, metadata.st_ino
+
+
+def _assert_directory_identity(path: Path, expected: tuple[int, int]) -> None:
+    if _directory_identity(path) != expected:
+        raise RuntimeError("staging_identity_mismatch")
+
+
+def _cleanup_owned_staging(path: Path, expected: tuple[int, int]) -> None:
+    try:
+        _assert_directory_identity(path, expected)
+    except FileNotFoundError:
+        return
+    shutil.rmtree(path)
+
+
+def _publish_staging_no_replace(staging: Path, target: Path) -> None:
+    if os.name == "nt":
+        os.rename(staging, target)
+        return
+
+    if sys.platform.startswith("linux"):
+        import ctypes
+
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            -100,
+            os.fsencode(staging),
+            -100,
+            os.fsencode(target),
+            1,
+        )
+        if result != 0:
+            error_number = ctypes.get_errno()
+            raise OSError(error_number, os.strerror(error_number), target)
+        return
+
+    raise OSError(
+        errno.ENOTSUP,
+        "atomic no-replace directory publish is unavailable",
+        target,
+    )
 
 
 def extract_verified_sedb(
@@ -280,45 +361,58 @@ def extract_verified_sedb(
 ) -> Path:
     archive_path = Path(archive)
     target_path = Path(target)
-    inspection = inspect_sedb_archive(archive_path, profile)
+    try:
+        snapshot = _read_archive_snapshot(archive_path)
+    except OSError as error:
+        raise ValueError("sedb_archive_incompatible:archive_unavailable") from error
+    inspection = _inspect_snapshot(archive_path, profile, snapshot)
     if not inspection.compatible:
         codes = ",".join(inspection.error_codes)
         raise ValueError(f"sedb_archive_incompatible:{codes}")
-    if target_path.exists():
-        raise FileExistsError(target_path)
 
-    with archive_path.open("rb") as source:
-        current_inspection = _inspect_open_archive(archive_path, profile, source)
-        if not current_inspection.compatible:
-            codes = ",".join(current_inspection.error_codes)
-            raise ValueError(f"sedb_archive_incompatible:{codes}")
+    with zipfile.ZipFile(io.BytesIO(snapshot), "r") as bundle:
+        members, member_errors = _validated_members(bundle)
+        if member_errors:
+            raise ValueError(f"sedb_archive_incompatible:{member_errors[0]}")
 
-        source.seek(0)
-        with zipfile.ZipFile(source, "r") as bundle:
-            members, member_errors = _validated_members(bundle)
-            if member_errors:
-                raise ValueError(f"sedb_archive_incompatible:{member_errors[0]}")
+        target_parent = target_path.parent.resolve(strict=True)
+        publish_target = target_parent / target_path.name
+        if os.path.lexists(publish_target):
+            raise FileExistsError(publish_target)
+        staging_path = Path(
+            tempfile.mkdtemp(
+                prefix=f".{target_path.name}.sedb-",
+                dir=target_parent,
+            )
+        )
+        staging_identity = _directory_identity(staging_path)
+        published = False
+        try:
+            for canonical_name, info in members.items():
+                destination = staging_path.joinpath(*canonical_name.split("/"))
+                resolved_destination = destination.resolve(strict=False)
+                if not resolved_destination.is_relative_to(staging_path):
+                    raise ValueError(
+                        "sedb_archive_incompatible:archive_path_unsafe"
+                    )
+                if info.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(info, "r") as member_source, destination.open(
+                    "xb"
+                ) as sink:
+                    shutil.copyfileobj(member_source, sink)
+            _assert_directory_identity(staging_path, staging_identity)
+            _publish_staging_no_replace(staging_path, publish_target)
+            published = True
+            _assert_directory_identity(publish_target, staging_identity)
+        except BaseException as error:
+            if not published:
+                try:
+                    _cleanup_owned_staging(staging_path, staging_identity)
+                except BaseException as cleanup_error:
+                    raise cleanup_error from error
+            raise
 
-            target_path.mkdir()
-            target_root = target_path.resolve()
-            try:
-                for canonical_name, info in members.items():
-                    destination = target_path.joinpath(*canonical_name.split("/"))
-                    resolved_destination = destination.resolve(strict=False)
-                    if not resolved_destination.is_relative_to(target_root):
-                        raise ValueError(
-                            "sedb_archive_incompatible:archive_path_unsafe"
-                        )
-                    if info.is_dir():
-                        destination.mkdir(parents=True, exist_ok=True)
-                        continue
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    with bundle.open(info, "r") as member_source, destination.open(
-                        "xb"
-                    ) as sink:
-                        shutil.copyfileobj(member_source, sink)
-            except BaseException:
-                shutil.rmtree(target_path)
-                raise
-
-    return target_path
+    return publish_target
