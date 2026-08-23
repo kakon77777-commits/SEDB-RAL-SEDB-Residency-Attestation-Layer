@@ -1,6 +1,11 @@
 import pytest
 
-from sedb_ral.canonical import canonical_bytes, loads_strict, sha256_ref
+from sedb_ral.canonical import (
+    CANONICALIZATION_VERSION,
+    canonical_bytes,
+    loads_strict,
+    sha256_ref,
+)
 from sedb_ral.errors import RALValidationError
 
 
@@ -8,8 +13,16 @@ def test_canonicalizes_key_order_and_unicode_nfc():
     value = {"b": "e\u0301", "a": 1}
     assert canonical_bytes(value) == '{"a":1,"b":"é"}'.encode("utf-8")
     assert sha256_ref(value) == (
-        "sha256:09ad9fd2fb648cb2f62141215828ea00"
-        "a62c299db05d20aa9ade2f527a301cc6"
+        "sha256:sedb-ral-json-nfc-codepoint-v1:"
+        "2f2886c6ce994ab63dbb009f227937e5"
+        "3ca18d074a8fac656dddd4ef61974ba1"
+    )
+
+
+def test_canonicalization_version_names_non_jcs_key_order():
+    assert CANONICALIZATION_VERSION == "sedb-ral-json-nfc-codepoint-v1"
+    assert canonical_bytes({"＀": 1, "😀": 2}) == (
+        '{"＀":1,"😀":2}'.encode("utf-8")
     )
 
 

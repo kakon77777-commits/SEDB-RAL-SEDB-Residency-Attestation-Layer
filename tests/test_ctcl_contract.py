@@ -53,9 +53,32 @@ def test_verified_retrieval_requires_evidence_ref():
         validate_ctcl_receipt(value)
 
 
-def test_unix_ms_and_ns_must_agree():
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("unix_ms", "1"),
+        ("unix_us", "1"),
+        ("unix_s", "1"),
+        ("rfc3339", "2026-08-23T08:09:40.165Z"),
+    ],
+)
+def test_all_time_encodings_must_agree(field, bad_value):
     value = copy.deepcopy(load("registered-anchor.json"))
-    value["encodings"]["unix_ns"] = "1"
+    value["encodings"][field] = bad_value
+    with pytest.raises(RALValidationError, match="encoding_mismatch"):
+        validate_ctcl_receipt(value)
+
+
+def test_registered_anchor_requires_service_returned_share_url():
+    value = copy.deepcopy(load("registered-anchor.json"))
+    value["service_returned_share_url"] = None
+    with pytest.raises(RALValidationError, match="anchor_share_url_missing"):
+        validate_ctcl_receipt(value)
+
+
+def test_reference_time_must_match_rfc3339_encoding():
+    value = copy.deepcopy(load("registered-anchor.json"))
+    value["reference"]["value"] = "2026-08-23T08:09:40.165Z"
     with pytest.raises(RALValidationError, match="encoding_mismatch"):
         validate_ctcl_receipt(value)
 

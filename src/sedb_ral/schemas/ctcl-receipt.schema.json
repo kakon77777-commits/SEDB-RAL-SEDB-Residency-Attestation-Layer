@@ -51,12 +51,22 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "unix_s",
         "unix_ms",
+        "unix_us",
         "unix_ns",
         "rfc3339"
       ],
       "properties": {
+        "unix_s": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
+        },
         "unix_ms": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "unix_us": {
           "type": "string",
           "pattern": "^[0-9]+$"
         },

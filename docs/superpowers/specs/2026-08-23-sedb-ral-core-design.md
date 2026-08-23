@@ -132,10 +132,27 @@ semantic purpose and reject unknown properties at stable boundaries.
 
 ### 6.2 Canonicalizer
 
-The canonicalizer produces UTF-8, NFC-normalized, sorted-key, compact JSON with
-an explicit canonicalization version. Hashes are over bytes, never over text
-silently re-encoded after newline normalization. Source expressions must state
-whether they measure physical bytes, decoded text, or a canonical projection.
+The Phase 1A canonicalization version is
+`sedb-ral-json-nfc-codepoint-v1`: UTF-8, NFC-normalized, Unicode code-point key
+order, compact JSON, no BOM/CR/trailing newline, and no floating-point values.
+This is explicitly not RFC 8785 JCS, whose object-key order uses UTF-16 code
+units and differs for some non-BMP keys.
+
+Digest references bind the version through domain separation:
+
+```text
+SHA256(
+  b"SEDB-RAL-CANONICAL\0"
+  + b"sedb-ral-json-nfc-codepoint-v1\0"
+  + canonical_bytes
+)
+```
+
+The serialized reference is
+`sha256:sedb-ral-json-nfc-codepoint-v1:<lowercase hex>`. Hashes are over bytes,
+never over text silently re-encoded after newline normalization. Source
+expressions must state whether they measure physical bytes, decoded text, or a
+canonical projection.
 
 ### 6.3 Admission engine
 

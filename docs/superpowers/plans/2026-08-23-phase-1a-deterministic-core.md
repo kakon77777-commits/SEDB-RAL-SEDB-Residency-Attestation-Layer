@@ -35,6 +35,8 @@ setuptools build backend, UTF-8/LF files.
   floats are rejected and decimals travel as strings.
 - Canonical bytes are UTF-8, NFC-normalized, sorted-key, compact JSON with no
   BOM, CR, or trailing newline.
+- Canonicalization version is `sedb-ral-json-nfc-codepoint-v1`; key ordering is
+  Unicode code point and explicitly not RFC 8785 UTF-16/JCS ordering.
 - Repository JSON Schemas under `src/sedb_ral/schemas/` are the source of
   truth and package data. No second checked-in schema tree is allowed.
 - `ctcl_now` is a non-persisted `reading`; only `ctcl_register_instant` creates
@@ -253,7 +255,12 @@ git commit -m "build: bootstrap Phase 1A package"
 # tests/test_canonical.py
 import pytest
 
-from sedb_ral.canonical import canonical_bytes, loads_strict, sha256_ref
+from sedb_ral.canonical import (
+    CANONICALIZATION_VERSION,
+    canonical_bytes,
+    loads_strict,
+    sha256_ref,
+)
 from sedb_ral.errors import RALValidationError
 
 
@@ -261,8 +268,16 @@ def test_canonicalizes_key_order_and_unicode_nfc():
     value = {"b": "e\u0301", "a": 1}
     assert canonical_bytes(value) == '{"a":1,"b":"é"}'.encode("utf-8")
     assert sha256_ref(value) == (
-        "sha256:09ad9fd2fb648cb2f62141215828ea00"
-        "a62c299db05d20aa9ade2f527a301cc6"
+        "sha256:sedb-ral-json-nfc-codepoint-v1:"
+        "2f2886c6ce994ab63dbb009f227937e5"
+        "3ca18d074a8fac656dddd4ef61974ba1"
+    )
+
+
+def test_canonicalization_version_names_non_jcs_key_order():
+    assert CANONICALIZATION_VERSION == "sedb-ral-json-nfc-codepoint-v1"
+    assert canonical_bytes({"＀": 1, "😀": 2}) == (
+        '{"＀":1,"😀":2}'.encode("utf-8")
     )
 
 
@@ -327,6 +342,13 @@ from .errors import RALValidationError
 JsonScalar: TypeAlias = None | bool | int | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
+CANONICALIZATION_VERSION = "sedb-ral-json-nfc-codepoint-v1"
+_DIGEST_DOMAIN = (
+    b"SEDB-RAL-CANONICAL\x00"
+    + CANONICALIZATION_VERSION.encode("ascii")
+    + b"\x00"
+)
+
 
 def _pairs(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
     result: dict[str, JsonValue] = {}
@@ -386,7 +408,8 @@ def canonical_bytes(value: JsonValue) -> bytes:
 
 
 def sha256_ref(value: JsonValue) -> str:
-    return "sha256:" + hashlib.sha256(canonical_bytes(value)).hexdigest()
+    digest = hashlib.sha256(_DIGEST_DOMAIN + canonical_bytes(value)).hexdigest()
+    return f"sha256:{CANONICALIZATION_VERSION}:{digest}"
 ```
 
 - [ ] **Step 4: Run focused tests and verify exact-byte success**
@@ -397,7 +420,7 @@ Run:
 python -m pytest tests/test_canonical.py -q
 ```
 
-Expected: `5 passed`.
+Expected: `6 passed`.
 
 - [ ] **Step 5: Commit canonicalization**
 

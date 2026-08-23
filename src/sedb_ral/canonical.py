@@ -10,6 +10,13 @@ from .errors import RALValidationError
 JsonScalar: TypeAlias = None | bool | int | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
+CANONICALIZATION_VERSION = "sedb-ral-json-nfc-codepoint-v1"
+_DIGEST_DOMAIN = (
+    b"SEDB-RAL-CANONICAL\x00"
+    + CANONICALIZATION_VERSION.encode("ascii")
+    + b"\x00"
+)
+
 
 def _pairs(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
     result: dict[str, JsonValue] = {}
@@ -74,4 +81,5 @@ def canonical_bytes(value: JsonValue) -> bytes:
 
 
 def sha256_ref(value: JsonValue) -> str:
-    return "sha256:" + hashlib.sha256(canonical_bytes(value)).hexdigest()
+    digest = hashlib.sha256(_DIGEST_DOMAIN + canonical_bytes(value)).hexdigest()
+    return f"sha256:{CANONICALIZATION_VERSION}:{digest}"
