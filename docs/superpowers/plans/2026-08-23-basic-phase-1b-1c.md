@@ -196,26 +196,38 @@ git commit -m "feat: add Phase 1B vertical contracts"
 - Consumes: application and authority-envelope mappings.
 - Produces:
   `application_digest(value: Mapping[str, object]) -> str`,
-  `evaluate_application(application, authorities) -> ApplicationDecision`.
+  `evaluate_application(application, authorities, *, verified_attestation_refs: Set[str]) -> ApplicationDecision`.
 
 - [ ] **Step 1: Write decision tests**
 
 ```python
 def test_authorized_zero_address_application_is_accepted_candidate():
-    result = evaluate_application(APP, [AUTHORITY])
+    result = evaluate_application(
+        APP,
+        [AUTHORITY],
+        verified_attestation_refs={"attestation:neo:1"},
+    )
     assert result.decision == "accept"
     assert result.mutated is False
 
 
 def test_missing_or_revoked_authority_defers_without_mutation():
-    assert evaluate_application(APP, []).reason_codes == ("authority_missing",)
-    assert evaluate_application(APP, [REVOKED]).reason_codes == ("authority_revoked",)
+    assert evaluate_application(
+        APP, [], verified_attestation_refs={"attestation:neo:1"}
+    ).reason_codes == ("authority_missing",)
+    assert evaluate_application(
+        APP, [REVOKED], verified_attestation_refs={"attestation:neo:1"}
+    ).reason_codes == ("authority_revoked",)
 
 
 def test_authority_must_bind_exact_digest_or_resident():
     changed = copy.deepcopy(APP)
     changed["display_label"] = "different"
-    assert evaluate_application(changed, [AUTHORITY]).decision != "accept"
+    assert evaluate_application(
+        changed,
+        [AUTHORITY],
+        verified_attestation_refs={"attestation:neo:1"},
+    ).decision != "accept"
 ```
 
 - [ ] **Step 2: Run and confirm missing-module RED**
