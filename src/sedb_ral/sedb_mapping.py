@@ -77,6 +77,13 @@ def _mapping_rules(mapping: Mapping[str, object]) -> dict[str, Mapping[str, obje
     return declared
 
 
+def validate_sedb_mapping(
+    mapping: Mapping[str, object],
+) -> dict[str, Mapping[str, object]]:
+    """Validate and return the profile's declared mapped RAL paths."""
+    return _mapping_rules(mapping)
+
+
 def _value_for(
     projection: RegistryProjection,
     resident_id: str,
@@ -113,7 +120,7 @@ def project_to_sedb_records(
     projection: RegistryProjection, mapping: Mapping[str, object]
 ) -> tuple[dict[str, object], ...]:
     """Project a registry snapshot into deterministic, side-effect-free SEDB records."""
-    rules = _mapping_rules(mapping)
+    rules = validate_sedb_mapping(mapping)
     records: list[dict[str, object]] = []
     for resident in projection.residents.values():
         resident_id = resident.get("resident_id")

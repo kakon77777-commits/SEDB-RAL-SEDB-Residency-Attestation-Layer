@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from .sedb_mapping import validate_sedb_mapping
+
 
 class _Missing:
     def __repr__(self) -> str:
@@ -26,6 +28,15 @@ class SEDBDifference:
     actual: object
     rule_id: str | None
 
+    def as_json(self) -> dict[str, object]:
+        return {
+            "path": self.path,
+            "classification": self.classification,
+            "expected": _presence_envelope(self.expected),
+            "actual": _presence_envelope(self.actual),
+            "rule_id": self.rule_id,
+        }
+
 
 @dataclass(frozen=True)
 class SEDBDiffReport:
@@ -45,6 +56,13 @@ class SEDBDiffReport:
     def passed(self) -> bool:
         return self.counts["contradiction"] == 0
 
+    def as_json(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "counts": self.counts,
+            "differences": [difference.as_json() for difference in self.differences],
+        }
+
 
 def _difference(
     path: str,
@@ -56,62 +74,24 @@ def _difference(
     return SEDBDifference(path, classification, expected, actual, rule_id)
 
 
-def _rules_by_path(
-    mapping: Mapping[str, object],
-) -> tuple[dict[str, Mapping[str, object]], tuple[SEDBDifference, ...]]:
-    rules = mapping.get("rules")
-    if not isinstance(rules, list):
-        return {}, (
-            _difference(
-                "mapping.rules",
-                "contradiction",
-                "a list of exact profile rules",
-                rules,
-            ),
-        )
+def _presence_envelope(value: object) -> dict[str, object]:
+    if value is MISSING:
+        return {"presence": "missing"}
+    return {"presence": "present", "value": value}
 
-    declared: dict[str, Mapping[str, object]] = {}
-    for index, rule in enumerate(rules):
-        path = f"mapping.rules[{index}]"
-        if not isinstance(rule, Mapping):
-            return {}, (
-                _difference(path, "contradiction", "a mapping rule", rule),
-            )
-        rule_id = rule.get("rule_id")
-        ral_path = rule.get("ral_path")
-        classification = rule.get("classification")
-        if not isinstance(rule_id, str) or not isinstance(ral_path, str):
-            return {}, (
-                _difference(
-                    path,
-                    "contradiction",
-                    "a rule_id and ral_path",
-                    rule,
-                    rule_id if isinstance(rule_id, str) else None,
-                ),
-            )
-        if classification not in {"mapped", "intentionally_unmapped"}:
-            return {}, (
-                _difference(
-                    f"{path}.classification",
-                    "contradiction",
-                    "mapped or intentionally_unmapped",
-                    classification,
-                    rule_id,
-                ),
-            )
-        if ral_path in declared:
-            return {}, (
-                _difference(
-                    f"{path}.ral_path",
-                    "contradiction",
-                    "a unique declared RAL path",
-                    ral_path,
-                    rule_id,
-                ),
-            )
-        declared[ral_path] = rule
-    return declared, ()
+
+def _all_rules(mapping: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
+    mapped_rules = validate_sedb_mapping(mapping)
+    all_rules = dict(mapped_rules)
+    rules = mapping["rules"]
+    assert isinstance(rules, list)
+    for rule in rules:
+        assert isinstance(rule, Mapping)
+        if rule["classification"] == "intentionally_unmapped":
+            ral_path = rule["ral_path"]
+            assert isinstance(ral_path, str)
+            all_rules[ral_path] = rule
+    return all_rules
 
 
 def _record_ids(
@@ -149,7 +129,24 @@ def _expected_by_mapping(
 ) -> bool:
     if rule.get("classification") == "intentionally_unmapped" and actual is MISSING:
         return True
-    return rule.get("null_policy") == "drop_null" and expected is None and actual is MISSING
+    return False
+
+
+def _json_exact_equal(expected: object, actual: object) -> bool:
+    if type(expected) is not type(actual):
+        return False
+    if isinstance(expected, Mapping):
+        assert isinstance(actual, Mapping)
+        return set(expected) == set(actual) and all(
+            _json_exact_equal(expected[key], actual[key]) for key in expected
+        )
+    if isinstance(expected, (list, tuple)):
+        assert isinstance(actual, (list, tuple))
+        return len(expected) == len(actual) and all(
+            _json_exact_equal(expected_value, actual_value)
+            for expected_value, actual_value in zip(expected, actual, strict=True)
+        )
+    return expected == actual
 
 
 def _compare_values(
@@ -180,7 +177,9 @@ def _compare_values(
                     str(rule["rule_id"]),
                 )
             )
-        elif actual_value is MISSING or actual_value != expected_value:
+        elif actual_value is MISSING or not _json_exact_equal(
+            expected_value, actual_value
+        ):
             differences.append(
                 _difference(
                     path,
@@ -203,7 +202,7 @@ def _compare_values(
             differences.append(
                 _difference(
                     path,
-                    "expected_by_mapping",
+                    "unmapped",
                     MISSING,
                     actual_value,
                     str(rule["rule_id"]),
@@ -228,9 +227,7 @@ def compare_sedb_projection(
     mapping: Mapping[str, object],
 ) -> SEDBDiffReport:
     """Classify exact SEDB projection differences using only mapping rules."""
-    rules, rule_differences = _rules_by_path(mapping)
-    if rule_differences:
-        return SEDBDiffReport(rule_differences)
+    rules = _all_rules(mapping)
 
     expected_records = tuple(expected)
     actual_records = tuple(actual)
@@ -249,47 +246,42 @@ def compare_sedb_projection(
     if actual_id_differences:
         return SEDBDiffReport(actual_id_differences)
 
-    canonical_expected_ids = tuple(sorted(expected_ids))
-    if expected_ids != canonical_expected_ids:
-        return SEDBDiffReport(
-            (
-                _difference(
-                    "expected.records.order",
-                    "contradiction",
-                    canonical_expected_ids,
-                    expected_ids,
-                ),
+    differences: list[SEDBDifference] = []
+    expected_by_id = dict(zip(expected_ids, expected_records, strict=True))
+    actual_by_id = dict(zip(actual_ids, actual_records, strict=True))
+    expected_id_set = set(expected_ids)
+    actual_id_set = set(actual_ids)
+    for record_id in sorted(expected_id_set.difference(actual_id_set)):
+        differences.append(
+            _difference(
+                f"records[{record_id}]",
+                "contradiction",
+                expected_by_id[record_id],
+                MISSING,
             )
         )
-    if set(expected_ids) == set(actual_ids) and actual_ids != canonical_expected_ids:
-        return SEDBDiffReport(
-            (
-                _difference(
-                    "records.order",
-                    "contradiction",
-                    canonical_expected_ids,
-                    actual_ids,
-                ),
+    for record_id in sorted(actual_id_set.difference(expected_id_set)):
+        differences.append(
+            _difference(
+                f"records[{record_id}]",
+                "contradiction",
+                MISSING,
+                actual_by_id[record_id],
             )
         )
-    if expected_ids != actual_ids:
-        expected_id = expected_ids[0] if expected_ids else MISSING
-        actual_id = actual_ids[0] if actual_ids else MISSING
-        return SEDBDiffReport(
-            (
-                _difference(
-                    f"records[{expected_id}].id",
-                    "contradiction",
-                    expected_id,
-                    actual_id,
-                ),
+    if expected_id_set == actual_id_set and expected_ids != actual_ids:
+        differences.append(
+            _difference(
+                "records.order",
+                "contradiction",
+                expected_ids,
+                actual_ids,
             )
         )
 
-    differences: list[SEDBDifference] = []
-    for expected_record, actual_record, record_id in zip(
-        expected_records, actual_records, expected_ids, strict=True
-    ):
+    for record_id in sorted(expected_id_set.intersection(actual_id_set)):
+        expected_record = expected_by_id[record_id]
+        actual_record = actual_by_id[record_id]
         for key in ("kind", "label"):
             if expected_record[key] != actual_record[key]:
                 differences.append(
