@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -74,6 +75,42 @@ def verify_manifest_at_commit(
         actual = hashlib.sha256(data).hexdigest()
         if actual != expected:
             errors.append(f"manifest_digest_mismatch:{relative}")
+    return tuple(sorted(set(errors)))
+
+
+def verify_phase1a_checkpoint(root: Path) -> tuple[str, ...]:
+    errors: list[str] = []
+    checkpoint = json.loads(
+        (root / "PHASE1A_CHECKPOINT.json").read_text(encoding="utf-8")
+    )
+    manifest = (root / "SHA256SUMS.txt").read_text(encoding="utf-8")
+    if hashlib.sha256(manifest.encode("utf-8")).hexdigest() != checkpoint[
+        "manifest_sha256"
+    ]:
+        errors.append("checkpoint_manifest_digest_mismatch")
+    errors.extend(
+        verify_manifest_at_commit(
+            root,
+            manifest,
+            checkpoint["checkpoint_commit"],
+        )
+    )
+    try:
+        validation_bytes = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{checkpoint['checkpoint_commit']}:VALIDATION_PHASE_1A.json",
+            ],
+            cwd=root,
+        )
+    except subprocess.CalledProcessError:
+        errors.append("checkpoint_validation_record_missing")
+    else:
+        if hashlib.sha256(validation_bytes).hexdigest() != checkpoint[
+            "validation_record_sha256"
+        ]:
+            errors.append("checkpoint_validation_digest_mismatch")
     return tuple(sorted(set(errors)))
 
 

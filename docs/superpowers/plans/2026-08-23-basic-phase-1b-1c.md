@@ -32,13 +32,14 @@
 **Files:**
 
 - Modify: `src/sedb_ral/phase1a.py`
+- Modify: `scripts/build_manifest.py`
 - Modify: `tests/test_packaging.py`
 - Create: `tests/test_phase1a_checkpoint.py`
 
 **Interfaces:**
 
 - Consumes: `PHASE1A_CHECKPOINT.json`, `SHA256SUMS.txt`, Git object database.
-- Produces: `verify_phase1a_checkpoint(root: Path) -> tuple[str, ...]`.
+- Produces repository-only `scripts.build_manifest.verify_phase1a_checkpoint(root: Path) -> tuple[str, ...]`. It remains outside `src/sedb_ral` so the runtime package does not gain a Git subprocess dependency.
 
 - [ ] **Step 1: Write the failing historical-checkpoint tests**
 
@@ -84,7 +85,7 @@ Expected: all pass; a deliberately altered checkpoint hash returns a non-empty e
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src/sedb_ral/phase1a.py tests/test_packaging.py tests/test_phase1a_checkpoint.py
+git add src/sedb_ral/phase1a.py scripts/build_manifest.py tests/test_packaging.py tests/test_phase1a_checkpoint.py docs/superpowers/plans/2026-08-23-basic-phase-1b-1c.md
 git commit -m "test: preserve the Phase 1A checkpoint"
 ```
 

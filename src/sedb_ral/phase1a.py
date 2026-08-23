@@ -91,7 +91,7 @@ def validate_phase1a(root: Path) -> Phase1AReport:
     actual_schemas = tuple(
         path.name for path in sorted(schema_root.glob("*.json"))
     )
-    if actual_schemas != tuple(sorted(_SCHEMAS)):
+    if not set(_SCHEMAS).issubset(actual_schemas):
         errors.append("schema_set_mismatch")
     for name in _SCHEMAS:
         try:

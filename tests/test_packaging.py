@@ -2,6 +2,7 @@ import json
 import gzip
 import hashlib
 import io
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -11,21 +12,39 @@ from scripts.build_reproducible import normalize_sdist
 ROOT = Path(__file__).parents[1]
 
 
+def checkpoint_tree_paths() -> set[str]:
+    checkpoint = json.loads(
+        (ROOT / "PHASE1A_CHECKPOINT.json").read_text(encoding="utf-8")
+    )
+    output = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", checkpoint["checkpoint_commit"]],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    return set(output.splitlines())
+
+
 def test_public_contracts_exist_once():
-    schema_root = ROOT / "src/sedb_ral/schemas"
-    schemas = sorted(path.name for path in schema_root.glob("*.json"))
+    prefix = "src/sedb_ral/schemas/"
+    schemas = sorted(
+        path.removeprefix(prefix)
+        for path in checkpoint_tree_paths()
+        if path.startswith(prefix)
+    )
     assert schemas == [
         "ctcl-receipt.schema.json",
         "identifier-discrimination.schema.json",
         "identifier-field.schema.json",
         "ledger-event.schema.json",
     ]
-    assert not (ROOT / "schemas").exists()
+    assert not any(path.startswith("schemas/") for path in checkpoint_tree_paths())
 
 
 def test_no_phase_1a_sqlite_or_send_adapter():
-    assert not list(ROOT.rglob("*.sqlite3"))
-    assert not (ROOT / "src/sedb_ral/adapters").exists()
+    paths = checkpoint_tree_paths()
+    assert not any(path.endswith(".sqlite3") for path in paths)
+    assert not any(path.startswith("src/sedb_ral/adapters/") for path in paths)
 
 
 def test_manifest_matches_release_files():
