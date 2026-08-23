@@ -762,6 +762,8 @@ conflict:
   match the exemplar, and the exemplar value must occur in the observation set.
 - Observation IDs are unique. One `instance_ref` binds to one claimed resident
   and one claimed runtime inside the fixture.
+- All grouping and comparison runs over the canonical NFC projection; raw
+  Unicode spelling cannot manufacture distinct residents, instances, or values.
 - Conclusive instability and cross-resident collision reject before positive
   sample-sufficiency checks. Admission requires one same-runtime cohort with at
   least two residents and the required number of instances per resident.
@@ -774,7 +776,9 @@ conflict:
   `null` is an explicit genesis declaration. `verify_ledger()` accepts an
   optional `expected_final_chain_digest`.
 - CLI input I/O, UTF-8, and JSON-syntax failures return canonical typed error
-  JSON with exit 1. Schema or admission rejection remains exit 2.
+  JSON with exit 1. Strict canonical-contract errors such as duplicate keys or
+  floats, schema errors, and admission rejection return canonical JSON with
+  exit 2.
 
 Decisions 0002 and 0003 record the rationale and evidence boundaries.
 

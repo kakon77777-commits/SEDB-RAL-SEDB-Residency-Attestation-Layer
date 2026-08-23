@@ -340,6 +340,61 @@ def test_detected_reparse_storage_is_rejected(tmp_path, monkeypatch):
     assert "storage_layout_invalid" in result.error_codes
 
 
+def test_append_rejects_reparse_root_before_locking(tmp_path, monkeypatch):
+    root = tmp_path / "ledger"
+    root.mkdir()
+    monkeypatch.setattr(
+        "sedb_ral.ledger._is_reparse_point",
+        lambda path: path == root,
+    )
+    with pytest.raises(RALValidationError) as caught:
+        append_event(
+            root,
+            draft("evt_001"),
+            CTCL,
+            expected_previous_chain_digest=None,
+        )
+    assert caught.value.code == "storage_layout_invalid"
+    assert not (root / ".append.lock").exists()
+
+
+def test_append_rejects_regular_file_root_with_typed_error(tmp_path):
+    root = tmp_path / "ledger"
+    root.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(RALValidationError) as caught:
+        append_event(
+            root,
+            draft("evt_001"),
+            CTCL,
+            expected_previous_chain_digest=None,
+        )
+    assert caught.value.code == "storage_layout_invalid"
+
+
+def test_lock_fsync_failure_is_typed_and_removes_own_lock(
+    tmp_path, monkeypatch
+):
+    def fail_fsync(file_descriptor):
+        raise OSError("fsync unavailable")
+
+    monkeypatch.setattr("sedb_ral.ledger.os.fsync", fail_fsync)
+    with pytest.raises(RALValidationError) as caught:
+        append_genesis(tmp_path)
+    assert caught.value.code == "append_lock_failed"
+    assert not (tmp_path / ".append.lock").exists()
+
+
+@pytest.mark.parametrize("node", ["events", "anchors"])
+def test_unexpected_storage_file_is_rejected(tmp_path, node):
+    storage = tmp_path / node
+    storage.mkdir()
+    (storage / "orphan.tmp").write_text("partial", encoding="utf-8")
+    result = verify_ledger(tmp_path)
+    assert result.valid is False
+    assert result.status is LedgerStatus.INVALID
+    assert "storage_layout_invalid" in result.error_codes
+
+
 def test_concurrent_genesis_attempts_publish_one_complete_event(tmp_path):
     def attempt(index):
         try:

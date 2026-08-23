@@ -269,6 +269,11 @@ cross-resident collision rejects before sample-sufficiency checks. Admission
 requires a same-runtime cohort with at least two residents and the declared
 number of instances per resident.
 
+The gate evaluates the canonical NFC projection of the complete fixture.
+Canonical-equivalent values and topology references therefore cannot appear
+distinct merely because one input uses composed Unicode and another uses a
+decomposed sequence.
+
 `resident_ref`, `instance_ref`, and `runtime_ref` remain applicant-claimed
 topology in Phase 1A. Consequently, an `admit` result means only that the value
 discriminates the claimed residents under the claimed runtime grouping. It is

@@ -33,6 +33,10 @@ Every observation must carry the exemplar's `namespace` and
 Observation IDs must be unique. Within one fixture, an `instance_ref` binds to
 exactly one claimed resident and one claimed runtime.
 
+All semantic grouping and equality checks use the canonical NFC projection of
+the fixture. Canonical-equivalent strings cannot count as separate values or
+topology references.
+
 Conclusive contradictions are evaluated before sufficiency:
 
 - instability within a resident rejects;

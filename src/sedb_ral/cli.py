@@ -45,6 +45,17 @@ def _print_input_error(code: str) -> None:
     )
 
 
+def _print_rejection(code: str) -> None:
+    _print_json(
+        {
+            "decision": "reject",
+            "reason_codes": [code],
+            "distinct_residents": 0,
+            "distinct_values": 0,
+        }
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.version:
@@ -64,17 +75,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         except json.JSONDecodeError:
             _print_input_error("input_invalid_json")
             return 1
+        except RALValidationError as error:
+            _print_rejection(error.code)
+            return 2
         try:
             result = evaluate_identifier_fixture(value)
         except RALValidationError as error:
-            _print_json(
-                {
-                    "decision": "reject",
-                    "reason_codes": [error.code],
-                    "distinct_residents": 0,
-                    "distinct_values": 0,
-                }
-            )
+            _print_rejection(error.code)
             return 2
         _print_json(result.as_json())
         if result.decision.value == "admit":

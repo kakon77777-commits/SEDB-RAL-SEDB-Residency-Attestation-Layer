@@ -199,7 +199,16 @@ def _event_records(
             if errors is not None:
                 errors.append("storage_layout_invalid")
             return records
-        paths = sorted(event_root.rglob("*.json"))
+        entries = sorted(event_root.rglob("*"))
+        if errors is not None and any(
+            path.is_file() and path.suffix != ".json" for path in entries
+        ):
+            errors.append("storage_layout_invalid")
+        paths = [
+            path
+            for path in entries
+            if path.is_file() and path.suffix == ".json"
+        ]
     except OSError:
         if errors is not None:
             errors.append("storage_traversal_failed")
@@ -260,7 +269,17 @@ def _anchor_records(
         ):
             errors.append("storage_layout_invalid")
             return records
-        paths = sorted(anchor_root.glob("*.json"))
+        entries = sorted(anchor_root.iterdir())
+        if any(
+            path.is_dir() or (path.is_file() and path.suffix != ".json")
+            for path in entries
+        ):
+            errors.append("storage_layout_invalid")
+        paths = [
+            path
+            for path in entries
+            if path.is_file() and path.suffix == ".json"
+        ]
     except OSError:
         errors.append("storage_traversal_failed")
         return records
@@ -414,10 +433,34 @@ def _validate_draft(draft: Mapping[str, object]) -> None:
 
 @contextmanager
 def _exclusive_append(root: Path) -> Iterator[None]:
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except FileExistsError as error:
+        raise RALValidationError(
+            "storage_layout_invalid", "ledger root is not a directory"
+        ) from error
+    except OSError as error:
+        raise RALValidationError(
+            "append_lock_failed", f"cannot create ledger root: {error}"
+        ) from error
+    try:
+        if _is_reparse_point(root) or not root.is_dir():
+            raise RALValidationError(
+                "storage_layout_invalid",
+                "ledger root must be a real directory",
+            )
+    except RALValidationError:
+        raise
+    except OSError as error:
+        raise RALValidationError(
+            "append_lock_failed", f"cannot inspect ledger root: {error}"
+        ) from error
+
     lock = root / ".append.lock"
+    lock_created = False
     try:
         with lock.open("xb") as stream:
+            lock_created = True
             stream.write(str(os.getpid()).encode("ascii"))
             stream.flush()
             os.fsync(stream.fileno())
@@ -425,10 +468,27 @@ def _exclusive_append(root: Path) -> Iterator[None]:
         raise RALValidationError(
             "append_in_progress", "ledger append lock already exists"
         ) from error
+    except OSError as error:
+        if lock_created:
+            try:
+                lock.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                raise RALValidationError(
+                    "append_lock_failed",
+                    f"lock setup failed and cleanup failed: {cleanup_error}",
+                ) from error
+        raise RALValidationError(
+            "append_lock_failed", f"lock setup failed: {error}"
+        ) from error
     try:
         yield
     finally:
-        lock.unlink(missing_ok=True)
+        try:
+            lock.unlink(missing_ok=True)
+        except OSError as error:
+            raise RALValidationError(
+                "append_lock_cleanup_failed", str(error)
+            ) from error
 
 
 def _publish_immutable(path: Path, content: bytes) -> None:

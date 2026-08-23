@@ -180,6 +180,24 @@ def test_identifier_check_cli_maps_invalid_json_to_typed_exit_one(
     assert output["reason_codes"] == ["input_invalid_json"]
 
 
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ('{"a":1,"a":2}', "duplicate_key"),
+        ('{"a":1.5}', "unsupported_number"),
+    ],
+)
+def test_identifier_check_cli_types_strict_json_contract_errors(
+    tmp_path, capsys, payload, reason
+):
+    path = tmp_path / "strict-invalid.json"
+    path.write_text(payload, encoding="utf-8")
+    assert main(["identifier", "check", str(path)]) == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["decision"] == "reject"
+    assert output["reason_codes"] == [reason]
+
+
 def test_identifier_check_cli_maps_invalid_utf8_to_typed_exit_one(
     tmp_path, capsys
 ):
@@ -277,3 +295,39 @@ def test_different_runtime_per_resident_cannot_support_admit():
     result = evaluate_identifier_fixture(fixture)
     assert result.decision is DiscriminationDecision.INDETERMINATE
     assert result.reason_codes == ("same_runtime_population_unmeasured",)
+
+
+def test_nfc_equivalent_observed_values_cannot_appear_distinct():
+    fixture = load("positive/resident-address.json")
+    fixture["identifier_exemplar"]["value"] = "é"
+    for observation in fixture["observations"]:
+        observation["observed_value"] = (
+            "é"
+            if observation["resident_ref"] == "resident:alice"
+            else "e\u0301"
+        )
+    result = evaluate_identifier_fixture(fixture)
+    assert result.decision is DiscriminationDecision.REJECT
+    assert result.reason_codes == ("does_not_distinguish_residents",)
+
+
+def test_nfc_equivalent_instance_refs_count_once():
+    fixture = load("positive/resident-address.json")
+    fixture["observations"][0]["instance_ref"] = "instance:alice:é"
+    fixture["observations"][1]["instance_ref"] = "instance:alice:e\u0301"
+    result = evaluate_identifier_fixture(fixture)
+    assert result.decision is DiscriminationDecision.INDETERMINATE
+    assert result.reason_codes == ("instances_per_resident_unmeasured",)
+
+
+def test_nfc_equivalent_resident_refs_count_once():
+    fixture = load("positive/resident-address.json")
+    for observation in fixture["observations"]:
+        observation["resident_ref"] = (
+            "resident:é"
+            if observation["resident_ref"] == "resident:alice"
+            else "resident:e\u0301"
+        )
+    result = evaluate_identifier_fixture(fixture)
+    assert result.decision is DiscriminationDecision.REJECT
+    assert result.reason_codes == ("unstable_within_resident",)
