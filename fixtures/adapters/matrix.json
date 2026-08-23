@@ -1,0 +1,14 @@
+{
+  "claude_session": {
+    "adapter_submits": "unmeasured",
+    "observed_origin": "unmeasured"
+  },
+  "codex_queue": {
+    "adapter_submits": true,
+    "observed_origin": "receiver_visible"
+  },
+  "pmw_fabric": {
+    "adapter_submits": "unmeasured",
+    "observed_origin": "unmeasured"
+  }
+}
