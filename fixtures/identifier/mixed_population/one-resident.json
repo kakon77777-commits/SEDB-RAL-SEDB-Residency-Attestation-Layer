@@ -1,0 +1,49 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "fixture:identifier:one-resident:indeterminate:v1",
+  "identifier": {
+    "schema_version": "0.1",
+    "identifier_id": "id:resident-address:single-population:v1",
+    "namespace": "agent",
+    "value": "agent://example/resident/only",
+    "subject_kind": "resident",
+    "identifier_kind": "resident_address",
+    "uniqueness_scope": "namespace",
+    "changes_when": [
+      "resident_address_rotated"
+    ],
+    "is_routable_address": true,
+    "attestation_refs": [
+      "attestation:fixture:single-resident"
+    ]
+  },
+  "discrimination_target": "resident",
+  "required_instances_per_resident": 2,
+  "observations": [
+    {
+      "observation_id": "observation:indeterminate:only:1",
+      "resident_ref": "resident:only",
+      "instance_ref": "instance:only:1",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/only"
+    },
+    {
+      "observation_id": "observation:indeterminate:only:2",
+      "resident_ref": "resident:only",
+      "instance_ref": "instance:only:2",
+      "runtime_ref": "runtime:shared:1",
+      "observed_value": "agent://example/resident/only"
+    }
+  ],
+  "expected_decision": "indeterminate",
+  "expected_reason_codes": [
+    "population_too_small"
+  ],
+  "temporal_evidence": {
+    "temporal_capture_mode": "synthetic_fixture",
+    "retro_stamped": false,
+    "basis_refs": [
+      "spec:identifier-discrimination-minimum-population"
+    ]
+  }
+}
