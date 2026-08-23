@@ -29,13 +29,20 @@
       "required": ["completeness", "observed_time_ref", "captured_at_ms", "thread_id", "message_digest", "presented_instance_ref", "acknowledged_instance_ref"],
       "properties": {
         "captured_at_ms": {"type": "integer", "minimum": 0},
-        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured"]},
+        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured", "structurally_unavailable"]},
         "observed_time_ref": {"type": ["string", "null"]},
         "thread_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
         "message_digest": {"type": ["string", "null"]},
         "presented_instance_ref": {"type": ["string", "null"]},
-        "acknowledged_instance_ref": {"type": ["string", "null"]}
-      }
+        "acknowledged_instance_ref": {"type": ["string", "null"]},
+        "structural_unavailability_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"completeness": {"const": "structurally_unavailable"}}, "required": ["completeness"]},
+          "then": {"required": ["structural_unavailability_reason"]}
+        }
+      ]
     },
     "session_file": {
       "type": ["object", "null"],
@@ -43,9 +50,16 @@
       "required": ["completeness", "observed_time_ref", "captured_at_ms"],
       "properties": {
         "captured_at_ms": {"type": "integer", "minimum": 0},
-        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured"]},
-        "observed_time_ref": {"type": ["string", "null"]}
-      }
+        "completeness": {"enum": ["complete", "partial", "indeterminate", "unmeasured", "structurally_unavailable"]},
+        "observed_time_ref": {"type": ["string", "null"]},
+        "structural_unavailability_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"completeness": {"const": "structurally_unavailable"}}, "required": ["completeness"]},
+          "then": {"required": ["structural_unavailability_reason"]}
+        }
+      ]
     }
   }
 }

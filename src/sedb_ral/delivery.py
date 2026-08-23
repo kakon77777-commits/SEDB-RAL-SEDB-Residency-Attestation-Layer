@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-from .adapters.codex_queue import AdapterObservation
+from .adapters.codex_queue import AdapterObservation, TransitionEvidence
 from .errors import RALValidationError
 
 
@@ -11,6 +11,7 @@ from .errors import RALValidationError
 class DeliveryState:
     delivery_id: str
     addressed_instance_ref: str
+    target_thread_id: str
     stage: str
     transport_accepted: bool | None
     conversation_materialized: bool | None
@@ -19,12 +20,13 @@ class DeliveryState:
     presented_instance_ref: str | None
     presented_instance_mismatch: bool | None
     observed_origin: str | None
+    transition_evidence: tuple[TransitionEvidence, ...]
 
 
 @dataclass(frozen=True)
 class RouteDiagnostics:
-    peer_reachable: bool | None
-    target_lock_valid: bool | None
+    recipient_agent_reachable: bool | None
+    valid_target_lock: bool | None
     adapter_submits: bool | None
     destination_route_ready: bool | None
     send_ready: None = None
@@ -54,10 +56,39 @@ def _tri_and(values: Iterable[bool | None]) -> bool | None:
     return True
 
 
+def _transition_evidence(
+    observations: Iterable[AdapterObservation],
+) -> tuple[TransitionEvidence, ...]:
+    stage_order = {
+        "transport_accepted": 1,
+        "conversation_materialized": 2,
+        "instance_presented": 3,
+        "instance_acknowledged": 4,
+    }
+    return tuple(
+        sorted(
+            {
+                evidence
+                for observation in observations
+                for evidence in observation.transition_evidence
+            },
+            key=lambda item: (
+                stage_order[item.stage],
+                item.observer_ref,
+                item.observed_time_ref or "",
+            ),
+        )
+    )
+
+
 def evaluate_route_predicates(
     value: Mapping[str, object],
 ) -> RouteDiagnostics:
-    expected = {"peer_reachable", "target_lock_valid", "adapter_submits"}
+    expected = {
+        "recipient_agent_reachable",
+        "valid_target_lock",
+        "adapter_submits",
+    }
     if set(value) != expected or any(
         item is not None and type(item) is not bool for item in value.values()
     ):
@@ -65,15 +96,19 @@ def evaluate_route_predicates(
             "route_predicates_invalid",
             "route predicates must be exactly three boolean-or-null terms",
         )
-    peer_reachable = value["peer_reachable"]
-    target_lock_valid = value["target_lock_valid"]
+    recipient_agent_reachable = value["recipient_agent_reachable"]
+    valid_target_lock = value["valid_target_lock"]
     adapter_submits = value["adapter_submits"]
     return RouteDiagnostics(
-        peer_reachable=peer_reachable,
-        target_lock_valid=target_lock_valid,
+        recipient_agent_reachable=recipient_agent_reachable,
+        valid_target_lock=valid_target_lock,
         adapter_submits=adapter_submits,
         destination_route_ready=_tri_and(
-            (peer_reachable, target_lock_valid, adapter_submits)
+            (
+                recipient_agent_reachable,
+                valid_target_lock,
+                adapter_submits,
+            )
         ),
     )
 
@@ -88,7 +123,12 @@ def reconstruct_delivery(
         )
     delivery_ids = {item.delivery_id for item in values}
     addressed_instances = {item.addressed_instance_ref for item in values}
-    if len(delivery_ids) != 1 or len(addressed_instances) != 1:
+    target_thread_ids = {item.target_thread_id for item in values}
+    if (
+        len(delivery_ids) != 1
+        or len(addressed_instances) != 1
+        or len(target_thread_ids) != 1
+    ):
         raise RALValidationError(
             "delivery_observation_mismatch",
             "observations must identify one delivery and addressed instance",
@@ -120,6 +160,7 @@ def reconstruct_delivery(
     return DeliveryState(
         delivery_id=values[0].delivery_id,
         addressed_instance_ref=values[0].addressed_instance_ref,
+        target_thread_id=values[0].target_thread_id,
         stage=stage,
         transport_accepted=transport_accepted,
         conversation_materialized=conversation_materialized,
@@ -130,4 +171,5 @@ def reconstruct_delivery(
         ),
         presented_instance_mismatch=presented_instance_mismatch,
         observed_origin=_one(item.observed_origin for item in values),
+        transition_evidence=_transition_evidence(values),
     )

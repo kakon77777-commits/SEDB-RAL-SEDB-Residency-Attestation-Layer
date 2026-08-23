@@ -36,9 +36,10 @@ def test_complete_transcript_materializes_body_after_eleven_minutes():
     assert observation.conversation_materialized is True
     assert observation.instance_presented is True
     assert observation.instance_acknowledged is True
-    assert observation.observed_origin == (
+    assert observation.presented_instance_ref == (
         "instance:recipient:0d7ccdd2-1adb-4c49-8e69-648a67ec28b9"
     )
+    assert observation.observed_origin is None
     assert observation.session_file_completeness == "indeterminate"
 
 
@@ -52,8 +53,54 @@ def test_prefix_collision_is_not_a_full_target_thread_match():
 def test_partial_transcript_does_not_advance_delivery_stages():
     observation = normalize_codex_queue(load("partial-transcript.json"))
 
+    assert observation.transcript_completeness == "partial"
     assert observation.conversation_materialized is None
     assert observation.instance_presented is None
+
+
+def test_structurally_unavailable_capture_keeps_state_and_reason():
+    observation = normalize_codex_queue(load("structurally-unavailable.json"))
+
+    assert observation.transcript_completeness == "structurally_unavailable"
+    assert observation.transcript_structural_unavailability_reason == (
+        "captured transcript contract has no recipient message body"
+    )
+    assert observation.session_file_completeness == "structurally_unavailable"
+    assert observation.session_file_structural_unavailability_reason == (
+        "captured session file does not expose recipient acknowledgement"
+    )
+
+
+def test_positive_stages_keep_observer_and_temporal_provenance():
+    observation = normalize_codex_queue(
+        load("materialized-and-acknowledged.json")
+    )
+
+    assert [
+        (item.stage, item.observer_ref, item.observed_time_ref)
+        for item in observation.transition_evidence
+    ] == [
+        (
+            "transport_accepted",
+            "adapter:codex_queue",
+            "ctcl:instant:3634f90c-e2a6-4f47-af4a-a005ab0ac7d3",
+        ),
+        (
+            "conversation_materialized",
+            "adapter:codex_queue",
+            "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+        ),
+        (
+            "instance_presented",
+            "adapter:codex_queue",
+            "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+        ),
+        (
+            "instance_acknowledged",
+            "adapter:codex_queue",
+            "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+        ),
+    ]
 
 
 @pytest.mark.parametrize("field", ["provider_session_path", "claimed_origin"])

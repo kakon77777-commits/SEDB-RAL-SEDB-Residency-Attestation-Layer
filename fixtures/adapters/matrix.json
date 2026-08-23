@@ -5,7 +5,7 @@
   },
   "codex_queue": {
     "adapter_submits": true,
-    "observed_origin": "receiver_visible"
+    "observed_origin": "observable"
   },
   "pmw_fabric": {
     "adapter_submits": "unmeasured",

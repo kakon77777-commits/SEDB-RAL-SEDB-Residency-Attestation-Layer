@@ -7,6 +7,15 @@ from ..canonical import canonical_bytes, loads_strict
 from ..contracts import validate_contract
 from ..errors import RALValidationError
 
+_OBSERVER_REF = "adapter:codex_queue"
+
+
+@dataclass(frozen=True)
+class TransitionEvidence:
+    stage: str
+    observer_ref: str
+    observed_time_ref: str | None
+
 
 @dataclass(frozen=True)
 class AdapterObservation:
@@ -22,7 +31,11 @@ class AdapterObservation:
     presented_instance_mismatch: bool | None
     observed_origin: str | None
     materialization_delay_ms: int | None
+    transcript_completeness: str | None
+    transcript_structural_unavailability_reason: str | None
     session_file_completeness: str | None
+    session_file_structural_unavailability_reason: str | None
+    transition_evidence: tuple[TransitionEvidence, ...]
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -44,6 +57,22 @@ def normalize_codex_queue(value: Mapping[str, object]) -> AdapterObservation:
     )
     transcript = captured["transcript"]
     session_file = captured["session_file"]
+    transcript_completeness = (
+        None if transcript is None else transcript["completeness"]
+    )
+    transcript_structural_unavailability_reason = (
+        None
+        if transcript is None
+        else transcript.get("structural_unavailability_reason")
+    )
+    session_file_completeness = (
+        None if session_file is None else session_file["completeness"]
+    )
+    session_file_structural_unavailability_reason = (
+        None
+        if session_file is None
+        else session_file.get("structural_unavailability_reason")
+    )
     conversation_materialized = None
     instance_presented = None
     instance_acknowledged = None
@@ -52,6 +81,13 @@ def normalize_codex_queue(value: Mapping[str, object]) -> AdapterObservation:
     observed_origin = None
     materialization_delay_ms = None
     target_thread_match = None
+    transition_evidence: list[TransitionEvidence] = []
+    if transport_accepted is True:
+        transition_evidence.append(
+            TransitionEvidence(
+                "transport_accepted", _OBSERVER_REF, queue["observed_time_ref"]
+            )
+        )
     if transcript is not None and transcript["completeness"] == "complete":
         target_thread_match = (
             transcript["thread_id"] == captured["target_thread_id"]
@@ -63,6 +99,13 @@ def normalize_codex_queue(value: Mapping[str, object]) -> AdapterObservation:
         and transcript["message_digest"] == captured["message_digest"]
     ):
         conversation_materialized = True
+        transition_evidence.append(
+            TransitionEvidence(
+                "conversation_materialized",
+                _OBSERVER_REF,
+                transcript["observed_time_ref"],
+            )
+        )
         if queue is not None:
             materialization_delay_ms = (
                 transcript["captured_at_ms"] - queue["captured_at_ms"]
@@ -70,16 +113,29 @@ def normalize_codex_queue(value: Mapping[str, object]) -> AdapterObservation:
         presented_instance_ref = transcript["presented_instance_ref"]
         if presented_instance_ref is not None:
             instance_presented = True
+            transition_evidence.append(
+                TransitionEvidence(
+                    "instance_presented",
+                    _OBSERVER_REF,
+                    transcript["observed_time_ref"],
+                )
+            )
             presented_instance_mismatch = (
                 presented_instance_ref != captured["addressed_instance_ref"]
             )
-            observed_origin = presented_instance_ref
             if (
                 not presented_instance_mismatch
                 and transcript["acknowledged_instance_ref"]
                 == captured["addressed_instance_ref"]
             ):
                 instance_acknowledged = True
+                transition_evidence.append(
+                    TransitionEvidence(
+                        "instance_acknowledged",
+                        _OBSERVER_REF,
+                        transcript["observed_time_ref"],
+                    )
+                )
     return AdapterObservation(
         delivery_id=captured["delivery_id"],
         addressed_instance_ref=captured["addressed_instance_ref"],
@@ -93,7 +149,13 @@ def normalize_codex_queue(value: Mapping[str, object]) -> AdapterObservation:
         presented_instance_mismatch=presented_instance_mismatch,
         observed_origin=observed_origin,
         materialization_delay_ms=materialization_delay_ms,
-        session_file_completeness=(
-            None if session_file is None else session_file["completeness"]
+        transcript_completeness=transcript_completeness,
+        transcript_structural_unavailability_reason=(
+            transcript_structural_unavailability_reason
         ),
+        session_file_completeness=session_file_completeness,
+        session_file_structural_unavailability_reason=(
+            session_file_structural_unavailability_reason
+        ),
+        transition_evidence=tuple(transition_evidence),
     )

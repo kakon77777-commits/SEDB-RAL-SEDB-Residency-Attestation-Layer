@@ -1,0 +1,25 @@
+{
+  "adapter_kind": "codex_queue",
+  "addressed_instance_ref": "instance:recipient:0d7ccdd2-1adb-4c49-8e69-648a67ec28b9",
+  "delivery_id": "delivery:codex-queue:0001",
+  "message_digest": "sha256:captured:message-0001",
+  "queue": null,
+  "schema_version": "0.1",
+  "session_file": {
+    "captured_at_ms": 660000,
+    "completeness": "structurally_unavailable",
+    "observed_time_ref": "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+    "structural_unavailability_reason": "captured session file does not expose recipient acknowledgement"
+  },
+  "target_thread_id": "019fe51e-9276-7f63-8c16-414624b7fa9d",
+  "transcript": {
+    "acknowledged_instance_ref": null,
+    "captured_at_ms": 660000,
+    "completeness": "structurally_unavailable",
+    "message_digest": null,
+    "observed_time_ref": "ctcl:instant:4fd1e86c-ae94-4b42-a28e-00cc6dc4cd4c",
+    "presented_instance_ref": null,
+    "structural_unavailability_reason": "captured transcript contract has no recipient message body",
+    "thread_id": null
+  }
+}
