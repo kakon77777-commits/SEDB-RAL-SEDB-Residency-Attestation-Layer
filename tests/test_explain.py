@@ -239,6 +239,24 @@ def test_distinct_roots_not_rows_decide_minimum():
     assert "distinct_evidence_roots_insufficient" in result.sufficiency_reason_codes
 
 
+def test_derived_shared_root_population_cannot_satisfy_independent_root_policy():
+    policy = copy.deepcopy(POLICY)
+    policy["minimum_distinct_evidence_roots"] = 1
+    rows = [
+        attestation(1, "evidence:shared:1"),
+        attestation(2, "evidence:shared:1"),
+    ]
+
+    result = explain_claim(events(rows), "claim:test", policy=policy)
+
+    assert result.distinct_root_count == 1
+    assert result.evidence_independence_status == "shared_root"
+    assert result.sufficiency == "insufficient"
+    assert result.sufficiency_reason_codes == (
+        "evidence_independence_insufficient",
+    )
+
+
 def test_missing_comparability_relation_is_indeterminate():
     policy = copy.deepcopy(POLICY)
     policy["comparability_relations"] = []

@@ -42,6 +42,7 @@ def project_events(
     claims: dict[str, dict[str, object]] = {}
     resident_source_event_ids: dict[str, str] = {}
     authority_grants: dict[str, tuple[str, str]] = {}
+    revoked_authority_grants: set[str] = set()
     event_entities: dict[str, set[tuple[str, str]]] = {}
     corrections: list[str] = []
     unapplied: list[str] = []
@@ -96,9 +97,13 @@ def project_events(
             if application is None:
                 mark_unapplied(event_id, "application_submission_missing")
                 continue
-            grant = authority_grants.get(payload.get("authority_grant_event_id"))
+            grant_event_id = payload.get("authority_grant_event_id")
+            grant = authority_grants.get(grant_event_id)
             if grant is None:
                 mark_unapplied(event_id, "application_authority_grant_missing")
+                continue
+            if grant_event_id in revoked_authority_grants:
+                mark_unapplied(event_id, "application_authority_grant_revoked")
                 continue
             if grant != (
                 payload.get("authority_id"),
@@ -165,6 +170,12 @@ def project_events(
             authority_id = payload.get("authority_id")
             if isinstance(authority_id, str):
                 event_entities[event_id].add(("authority", authority_id))
+            grant_event_id = payload.get("authority_grant_event_id")
+            if authority_grants.get(grant_event_id) == (
+                authority_id,
+                payload.get("authority_digest"),
+            ):
+                revoked_authority_grants.add(grant_event_id)
             continue
 
         if event_type == "record.corrected":

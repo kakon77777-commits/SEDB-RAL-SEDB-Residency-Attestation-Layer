@@ -102,6 +102,24 @@ _REQUIRED_FIXTURES = (
     "fixtures/ledger/event-002.json",
 )
 _REQUIRED_CORPUS = ("corpus/incidents.jsonl", "corpus/incidents.md")
+_REQUIRED_TESTS = (
+    "tests/test_application_commit.py",
+    "tests/test_application_decision.py",
+    "tests/test_codex_queue_adapter.py",
+    "tests/test_delivery.py",
+    "tests/test_explain.py",
+    "tests/test_incidents.py",
+    "tests/test_ledger.py",
+    "tests/test_no_send.py",
+    "tests/test_packaging.py",
+    "tests/test_phase1a_checkpoint.py",
+    "tests/test_phase1a_gate.py",
+    "tests/test_phase1b_contracts.py",
+    "tests/test_phase1bc_gate.py",
+    "tests/test_projection.py",
+    "tests/test_sqlite_projection.py",
+    "tests/test_transcript.py",
+)
 _REQUIRED_VALIDATION_INPUTS = (
     "PHASE1A_CHECKPOINT.json",
     "VALIDATION_PHASE_1A.json",
@@ -113,21 +131,25 @@ _REQUIRED_VALIDATION_INPUTS = (
 )
 
 
+REQUIRED_PHASE1BC_ARTIFACTS = tuple(
+    sorted(
+        {
+            *(
+                f"src/sedb_ral/schemas/{name}"
+                for name in _REQUIRED_SCHEMAS
+            ),
+            *_REQUIRED_RUNTIME,
+            *_REQUIRED_FIXTURES,
+            *_REQUIRED_CORPUS,
+            *_REQUIRED_TESTS,
+            *_REQUIRED_VALIDATION_INPUTS,
+        }
+    )
+)
+
+
 def required_phase1bc_artifacts() -> tuple[str, ...]:
-    schemas = tuple(
-        f"src/sedb_ral/schemas/{name}" for name in _REQUIRED_SCHEMAS
-    )
-    return tuple(
-        sorted(
-            {
-                *schemas,
-                *_REQUIRED_RUNTIME,
-                *_REQUIRED_FIXTURES,
-                *_REQUIRED_CORPUS,
-                *_REQUIRED_VALIDATION_INPUTS,
-            }
-        )
-    )
+    return REQUIRED_PHASE1BC_ARTIFACTS
 
 
 @dataclass(frozen=True)

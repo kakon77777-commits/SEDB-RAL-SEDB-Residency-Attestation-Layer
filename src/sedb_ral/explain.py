@@ -153,6 +153,7 @@ def _basis_pairs_are_comparable(
 def _evaluate_sufficiency(
     attestations: tuple[Mapping[str, object], ...],
     roots: tuple[str, ...],
+    evidence_independence_status: str,
     policy: Mapping[str, object] | None,
 ) -> tuple[str, tuple[str, ...], str | None]:
     if policy is None:
@@ -237,6 +238,15 @@ def _evaluate_sufficiency(
         for value in evidence_values
     ):
         failures.append("evidence_independence_insufficient")
+    if evidence_independence_status in {"indeterminate", "unmeasured"}:
+        if "evidence_independence_indeterminate" not in indeterminate:
+            indeterminate.append("evidence_independence_indeterminate")
+    elif (
+        evidence_independence_status
+        != policy["required_evidence_independence_status"]
+        and "evidence_independence_insufficient" not in failures
+    ):
+        failures.append("evidence_independence_insufficient")
     if len(roots) < policy["minimum_distinct_evidence_roots"]:
         failures.append("distinct_evidence_roots_insufficient")
     if failures:
@@ -285,7 +295,10 @@ def explain_claim(
         inferred_shared=any(count > 1 for count in root_counts.values()),
     )
     sufficiency, reason_codes, policy_scope = _evaluate_sufficiency(
-        tuple(attestations), distinct_roots, policy
+        tuple(attestations),
+        distinct_roots,
+        evidence_independence,
+        policy,
     )
     return ClaimExplanation(
         claim_id=claim_id,

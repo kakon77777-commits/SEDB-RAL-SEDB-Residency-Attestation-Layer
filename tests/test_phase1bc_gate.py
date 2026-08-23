@@ -2,11 +2,31 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from sedb_ral.cli import main
 import sedb_ral.phase1bc as phase1bc
 from sedb_ral.phase1bc import validate_phase1bc
 
 ROOT = Path(__file__).parents[1]
+TASK_TEST_ARTIFACTS = (
+    "tests/test_application_commit.py",
+    "tests/test_application_decision.py",
+    "tests/test_codex_queue_adapter.py",
+    "tests/test_delivery.py",
+    "tests/test_explain.py",
+    "tests/test_incidents.py",
+    "tests/test_ledger.py",
+    "tests/test_no_send.py",
+    "tests/test_packaging.py",
+    "tests/test_phase1a_checkpoint.py",
+    "tests/test_phase1a_gate.py",
+    "tests/test_phase1b_contracts.py",
+    "tests/test_phase1bc_gate.py",
+    "tests/test_projection.py",
+    "tests/test_sqlite_projection.py",
+    "tests/test_transcript.py",
+)
 
 
 def copy_required_inputs(tmp_path: Path) -> Path:
@@ -166,6 +186,39 @@ def test_required_artifact_census_is_subset_based_and_transcript_schema_is_requi
         "required_artifact_missing:src/sedb_ral/schemas/transcript-binding.schema.json"
         in report.error_codes
     )
+
+
+def test_all_task_1_to_10_test_artifacts_are_in_the_required_census():
+    required = set(phase1bc.required_phase1bc_artifacts())
+
+    assert set(TASK_TEST_ARTIFACTS).issubset(required)
+
+
+@pytest.mark.parametrize("relative", TASK_TEST_ARTIFACTS)
+def test_deleting_any_task_test_artifact_turns_census_red(tmp_path, relative):
+    copied = copy_required_inputs(tmp_path)
+    destination = copied / relative
+    if not destination.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+    destination.unlink()
+    expected = f"required_artifact_missing:{relative}"
+
+    assert expected in phase1bc._required_artifact_errors(copied)
+
+
+def test_missing_required_test_artifact_turns_repository_gate_red(tmp_path):
+    copied = copy_required_inputs(tmp_path)
+    target = copied / "tests/test_explain.py"
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "tests/test_explain.py", target)
+    target.unlink()
+
+    report = validate_phase1bc(copied)
+
+    assert report.passed is False
+    assert "required_artifact_missing:tests/test_explain.py" in report.error_codes
 
 
 def test_phase1bc_retains_completed_faults_when_later_fault_raises(monkeypatch):
