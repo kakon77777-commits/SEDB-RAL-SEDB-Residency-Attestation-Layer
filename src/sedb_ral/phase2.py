@@ -28,6 +28,15 @@ _DIFF_CLASSES = (
     "unmapped",
     "contradiction",
 )
+_CONTROL_NAMES = frozenset(
+    {
+        "archive_hash",
+        "manifest",
+        "mapping_contradiction",
+        "null_vs_false",
+        "no_send",
+    }
+)
 _TASK5_REPORT = (
     ".superpowers/sdd/2026-08-23-basic-phase-2-sedb-profile/"
     "task-5-report.md"
@@ -38,6 +47,17 @@ _EVIDENCE_REFS = (
     "scripts/validate_sedb_v04b.py",
     _TASK5_REPORT,
 )
+_INHERITED_SEDB_TESTS = {
+    "selected_source": "own_execution",
+    "package_claim": None,
+    "own_execution": {
+        "passed": 189,
+        "failed": 0,
+        "skipped": 0,
+        "fresh_execution": False,
+        "inherited_from": _TASK5_REPORT,
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -61,7 +81,8 @@ class ExecutedPhase2Control:
 @dataclass(frozen=True)
 class Phase2Report:
     passed: bool
-    receipt_id: str
+    compatibility_subject_id: str
+    receipt_id: str | None
     adoption_profile_id: str
     adoption_profile_version: str
     mapping_profile_id: str
@@ -101,6 +122,7 @@ class Phase2Report:
     def as_json(self) -> dict[str, object]:
         return {
             "schema_version": "0.2",
+            "compatibility_subject_id": self.compatibility_subject_id,
             "receipt_id": self.receipt_id,
             "passed": self.passed,
             "adoption_profile_id": self.adoption_profile_id,
@@ -443,7 +465,7 @@ def _archive_payload(
     }
 
 
-def _receipt_id(
+def _compatibility_subject_id(
     adoption_profile: Mapping[str, object],
     mapping_profile: Mapping[str, object],
     mapping_digest: str,
@@ -478,9 +500,10 @@ def _base_report(
     mapping_digest = sha256_ref(mapping_profile)
     return Phase2Report(
         passed=False,
-        receipt_id=_receipt_id(
+        compatibility_subject_id=_compatibility_subject_id(
             adoption_profile, mapping_profile, mapping_digest
         ),
+        receipt_id=None,
         adoption_profile_id=_string(adoption_profile.get("profile_id")),
         adoption_profile_version=_string(
             adoption_profile.get("profile_version")
@@ -509,17 +532,7 @@ def _base_report(
         phase1_projection_head=None,
         integration=None,
         differential=_empty_diff(),
-        sedb_tests={
-            "selected_source": "own_execution",
-            "package_claim": adoption_profile.get("validation_claim_source"),
-            "own_execution": {
-                "passed": 189,
-                "failed": 0,
-                "skipped": 0,
-                "fresh_execution": False,
-                "inherited_from": _TASK5_REPORT,
-            },
-        },
+        sedb_tests=copy.deepcopy(_INHERITED_SEDB_TESTS),
         executed_controls=(),
         signature_presence="not_performed",
         ctcl_state="CTCL_FINAL_PENDING",
@@ -672,16 +685,6 @@ def validate_basic_phase2(
     return completed
 
 
-def _contains_string(value: object, expected: str) -> bool:
-    if value == expected:
-        return True
-    if isinstance(value, Mapping):
-        return any(_contains_string(item, expected) for item in value.values())
-    if isinstance(value, (list, tuple)):
-        return any(_contains_string(item, expected) for item in value)
-    return False
-
-
 def finalize_basic_phase2(
     report: Phase2Report,
     *,
@@ -700,35 +703,163 @@ def finalize_basic_phase2(
     if (
         not isinstance(ctcl_instant_id, str)
         or not ctcl_instant_id.startswith("ctcl:instant:")
-        or not _contains_string(register_response, ctcl_instant_id)
+        or register_response.get("id") != ctcl_instant_id
     ):
         raise RALValidationError(
             "ctcl_registration_mismatch", ctcl_instant_id
         )
-    if not _contains_string(retrieve_response, ctcl_instant_id):
+    if retrieve_response.get("id") != ctcl_instant_id:
         raise RALValidationError(
             "ctcl_retrieval_mismatch", ctcl_instant_id
         )
-    return replace(
+    finalized = replace(
         report,
+        receipt_id=None,
         ctcl_state="finalized",
         ctcl_instant_id=ctcl_instant_id,
         ctcl_register_response=copy.deepcopy(dict(register_response)),
         ctcl_retrieve_response=copy.deepcopy(dict(retrieve_response)),
     )
+    return replace(finalized, receipt_id=_final_receipt_id(finalized))
+
+
+def _final_receipt_id(report: Phase2Report) -> str:
+    payload = report.as_json()
+    del payload["receipt_id"]
+    return sha256_ref(payload)
+
+
+def _expected_compatibility_subject_id(report: Phase2Report) -> str:
+    return sha256_ref(
+        {
+            "kind": "sedb-ral-basic-phase2-receipt",
+            "adoption_profile_id": report.adoption_profile_id,
+            "adoption_profile_version": report.adoption_profile_version,
+            "mapping_profile_id": report.mapping_profile_id,
+            "mapping_profile_version": report.mapping_profile_version,
+            "archive_sha256": report.archive.get("sha256"),
+            "mapping_profile_digest": report.mapping_profile_digest,
+        }
+    )
+
+
+def _semantic_error(code: str, detail: str) -> None:
+    raise RALValidationError(code, detail)
+
+
+def _validate_final_receipt_semantics(report: Phase2Report) -> None:
+    if not report.passed:
+        _semantic_error("phase2_report_not_passed", "passed must be true")
+    if report.error_codes:
+        _semantic_error(
+            "phase2_error_codes_present", ",".join(report.error_codes)
+        )
+    if not report.phase1a_passed:
+        _semantic_error("phase1a_gate_failed", "Phase 1A did not pass")
+    if (
+        not report.phase1bc_passed
+        or report.phase1bc_report is None
+        or report.phase1bc_report.get("phase1a_passed") is not True
+    ):
+        _semantic_error("phase1bc_gate_failed", "Phase 1B/1C did not pass")
+
+    if (
+        report.manifest.get("verified") is not True
+        or report.manifest.get("expected_entry_count")
+        != report.manifest.get("observed_entry_count")
+    ):
+        _semantic_error(
+            "manifest_verification_failed", "manifest evidence is inconsistent"
+        )
+    if (
+        not isinstance(report.phase1_projection_head, str)
+        or not report.phase1_projection_head
+    ):
+        _semantic_error(
+            "phase1_projection_head_missing", "projection head is required"
+        )
+
+    integration = report.integration
+    if not isinstance(integration, Mapping):
+        _semantic_error("sedb_integration_missing", "integration is required")
+    if integration.get("database_integrity") != "ok":
+        _semantic_error("sedb_integrity_failed", "database integrity is not ok")
+    if integration.get("records_match") is not True:
+        _semantic_error("sedb_records_mismatch", "SEDB records do not match")
+    if integration.get("expected_record_count") != integration.get(
+        "exported_record_count"
+    ):
+        _semantic_error(
+            "sedb_record_count_mismatch", "expected/exported counts differ"
+        )
+
+    differential = report.differential
+    counts = differential.get("counts")
+    if (
+        differential.get("passed") is not True
+        or not isinstance(counts, Mapping)
+        or set(counts) != set(_DIFF_CLASSES)
+        or counts.get("contradiction") != 0
+    ):
+        _semantic_error(
+            "sedb_differential_invalid", "differential evidence is inconsistent"
+        )
+
+    controls = report.executed_controls
+    if (
+        len(controls) != len(_CONTROL_NAMES)
+        or {control.name for control in controls} != _CONTROL_NAMES
+        or any(
+            control.executed is not True
+            or control.expected_code != control.observed_code
+            for control in controls
+        )
+    ):
+        _semantic_error(
+            "phase2_controls_invalid", "executed controls are inconsistent"
+        )
+    if report.sedb_tests != _INHERITED_SEDB_TESTS:
+        _semantic_error(
+            "sedb_test_evidence_invalid", "inherited SEDB test evidence changed"
+        )
+    if report.signature_presence != "not_performed":
+        _semantic_error(
+            "signature_status_invalid", "signature verification was not performed"
+        )
+
+    if report.ctcl_state != "finalized":
+        _semantic_error("ctcl_final_pending", report.ctcl_state)
+    if (
+        not isinstance(report.ctcl_instant_id, str)
+        or not report.ctcl_instant_id.startswith("ctcl:instant:")
+        or not isinstance(report.ctcl_register_response, Mapping)
+        or report.ctcl_register_response.get("id") != report.ctcl_instant_id
+    ):
+        _semantic_error(
+            "ctcl_registration_mismatch", str(report.ctcl_instant_id)
+        )
+    if (
+        not isinstance(report.ctcl_retrieve_response, Mapping)
+        or report.ctcl_retrieve_response.get("id") != report.ctcl_instant_id
+    ):
+        _semantic_error(
+            "ctcl_retrieval_mismatch", str(report.ctcl_instant_id)
+        )
+
+    expected_subject = _expected_compatibility_subject_id(report)
+    if report.compatibility_subject_id != expected_subject:
+        _semantic_error(
+            "compatibility_subject_id_mismatch", expected_subject
+        )
+    expected_receipt_id = _final_receipt_id(replace(report, receipt_id=None))
+    if report.receipt_id != expected_receipt_id:
+        _semantic_error("receipt_id_mismatch", expected_receipt_id)
 
 
 def write_basic_phase2_receipt(
     report: Phase2Report, destination: str | Path
 ) -> Path:
-    if (
-        report.ctcl_state != "finalized"
-        or report.ctcl_register_response is None
-        or report.ctcl_retrieve_response is None
-    ):
-        raise RALValidationError(
-            "ctcl_final_pending", report.ctcl_state
-        )
+    _validate_final_receipt_semantics(report)
     payload = report.as_json()
     validate_contract("sedb-compatibility-receipt.schema.json", payload)
     destination_path = Path(destination)
