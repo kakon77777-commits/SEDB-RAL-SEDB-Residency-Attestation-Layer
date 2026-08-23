@@ -27,6 +27,26 @@ CTCL = json.loads(
 VERIFIED = frozenset({"attestation:neo:1"})
 
 
+def attestation(attestation_id, claim_ref):
+    return {
+        "schema_version": "0.1",
+        "attestation_id": attestation_id,
+        "claim_ref": claim_ref,
+        "evidence_basis": "filesystem_observation",
+        "verification_status": "verified",
+        "record_status": "active",
+        "observer_independence_status": "independent",
+        "evidence_independence_status": "independent",
+        "independence_scope": "scope:test",
+        "evidence_root_refs": ["evidence-root:test:1"],
+        "derivation_parent_refs": [],
+        "evidence_refs": ["evidence:test:1"],
+        "scope": ["scope:test"],
+        "temporal_validity": "valid",
+        "not_claimed": [],
+    }
+
+
 def committed_events(tmp_path):
     application = APPLICATION_FIXTURE["application"]
     authority = APPLICATION_FIXTURE["authorities"][0]
@@ -358,3 +378,94 @@ def test_in_place_rebuild_rejects_nonempty_output_instead_of_leaving_stale_files
         write_projection(empty_projection, output)
 
     assert all(path.exists() for path in first)
+
+
+def test_attestations_attach_to_their_resident_claim_in_id_order(tmp_path):
+    events = list(committed_events(tmp_path / "ledger"))
+    later = attestation("attestation:test:z", "claim:test:1")
+    earlier = attestation("attestation:test:a", "claim:test:1")
+    events.extend(
+        [
+            {
+                "ledger_seq": 5,
+                "event_id": "evt_attestation_z",
+                "event_type": "attestation.recorded",
+                "payload": {"attestation": later},
+            },
+            {
+                "ledger_seq": 6,
+                "event_id": "evt_attestation_a",
+                "event_type": "attestation.recorded",
+                "payload": {"attestation": earlier},
+            },
+        ]
+    )
+
+    projection = project_events(events)
+
+    assert projection.attestations == {"resident:test": (earlier, later)}
+    assert projection.unapplied_reasons == {}
+
+
+def test_unknown_or_unowned_attestation_claims_remain_unapplied(tmp_path):
+    events = list(committed_events(tmp_path / "ledger"))
+    unowned_claim = copy.deepcopy(APPLICATION_FIXTURE["application"]["claims"][0])
+    unowned_claim["claim_id"] = "claim:unowned:1"
+    events.extend(
+        [
+            {
+                "ledger_seq": 5,
+                "event_id": "evt_claim_unowned",
+                "event_type": "claim.recorded",
+                "payload": {"claim": unowned_claim},
+            },
+            {
+                "ledger_seq": 6,
+                "event_id": "evt_attestation_unknown",
+                "event_type": "attestation.recorded",
+                "payload": {
+                    "attestation": attestation(
+                        "attestation:test:unknown", "claim:missing:1"
+                    )
+                },
+            },
+            {
+                "ledger_seq": 7,
+                "event_id": "evt_attestation_unowned",
+                "event_type": "attestation.recorded",
+                "payload": {
+                    "attestation": attestation(
+                        "attestation:test:unowned", "claim:unowned:1"
+                    )
+                },
+            },
+        ]
+    )
+
+    projection = project_events(events)
+
+    assert projection.attestations == {"resident:test": ()}
+    assert projection.unapplied_reasons == {
+        "evt_attestation_unknown": "attestation_claim_missing",
+        "evt_attestation_unowned": "attestation_claim_unowned",
+    }
+
+
+def test_invalid_attestation_remains_unapplied(tmp_path):
+    events = list(committed_events(tmp_path / "ledger"))
+    invalid = attestation("attestation:test:invalid", "claim:test:1")
+    invalid.pop("evidence_refs")
+    events.append(
+        {
+            "ledger_seq": 5,
+            "event_id": "evt_attestation_invalid",
+            "event_type": "attestation.recorded",
+            "payload": {"attestation": invalid},
+        }
+    )
+
+    projection = project_events(events)
+
+    assert projection.unapplied_reasons == {
+        "evt_attestation_invalid": "attestation_contract_invalid"
+    }

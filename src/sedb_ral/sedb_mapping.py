@@ -94,15 +94,16 @@ def _value_for(
             return _MISSING
         return application.get("status", _MISSING)
     if ral_path == "ral.instance_refs":
-        directory = projection.directory.get(resident_id)
-        return directory.get("instance_refs", _MISSING) if directory else _MISSING
+        instances = resident.get("instances", _MISSING)
+        if instances is _MISSING or instances is None:
+            return instances
+        return sorted(str(instance["instance_id"]) for instance in instances)
     if ral_path == "ral.addresses":
-        directory = projection.directory.get(resident_id)
-        return directory.get("addresses", _MISSING) if directory else _MISSING
+        return resident.get("addresses", _MISSING)
     if ral_path == "ral.claims":
         return resident.get("claims", _MISSING)
     if ral_path == "ral.attestations":
-        return resident.get("attestations", _MISSING)
+        return list(projection.attestations.get(resident_id, ()))
     if ral_path == "ral.ledger_head":
         return projection.source_event_ids[-1] if projection.source_event_ids else _MISSING
     raise AssertionError(f"unreachable declared path: {ral_path}")

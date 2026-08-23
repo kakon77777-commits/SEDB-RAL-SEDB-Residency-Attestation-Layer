@@ -35,6 +35,11 @@ INSTANCE = {
     "started_time_ref": "ctcl:instant:test",
     "ended_time_ref": None,
 }
+SOURCE_ADDRESS = {
+    "address_id": "address:source:1",
+    "kind": "queue",
+    "value": "queue:source",
+}
 PROJECTION = RegistryProjection(
     applications={"application:test:1": {"status": "accepted"}},
     residents={
@@ -72,6 +77,42 @@ def test_missing_address_remains_absent_not_false():
     record = project_to_sedb_records(PROJECTION, MAPPING)[0]
 
     assert "ral.addresses" not in record["values"]
+
+
+def test_resident_source_addresses_and_instances_win_over_directory_copy():
+    second_instance = {
+        **INSTANCE,
+        "instance_id": "instance:test:2",
+    }
+    projection = replace(
+        PROJECTION,
+        residents={
+            "resident:test": {
+                **PROJECTION.residents["resident:test"],
+                "addresses": [SOURCE_ADDRESS],
+                "instances": [second_instance, INSTANCE],
+            }
+        },
+        directory={
+            "resident:test": {
+                "addresses": [{"address_id": "address:directory:1"}],
+                "instance_refs": ["instance:directory:1"],
+            }
+        },
+    )
+
+    values = project_to_sedb_records(projection, MAPPING)[0]["values"]
+    assert values["ral.addresses"] == [SOURCE_ADDRESS]
+    assert values["ral.instance_refs"] == [
+        "instance:test:1",
+        "instance:test:2",
+    ]
+
+
+def test_empty_resident_attestations_are_emitted_honestly():
+    record = project_to_sedb_records(PROJECTION, MAPPING)[0]
+
+    assert record["values"]["ral.attestations"] == []
 
 
 def test_resident_records_sort_by_canonical_id():
