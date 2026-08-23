@@ -309,6 +309,28 @@ codes, the record uses `address_failure_indeterminate`, includes
 `candidate_codes`, and preserves the observation that failed to separate them.
 Selecting one code only for tidiness fabricates evidence.
 
+### 7.8 Transcript binding and speaker presentation
+
+A multi-party transcript binds each readable `speaker_id` variable to a full
+identifier and an explicit `identifier_kind` before the label is used. The
+binding is transcript-scoped; names and short codes are not addresses outside
+that scope. Session/thread-level labels expire and rebind explicitly when the
+instance changes. Cross-session resident continuity cannot be inferred from a
+reused label.
+
+Every authored turn starts with `{speaker_id}:`. That prefix is display, not
+authorship evidence. Canonical resident, instance, continuity-line,
+thread/session, relay, claimed-authorship, verified-authorship, and
+observed-origin records remain separate.
+
+A Phase 1B rich renderer may place an independent color swatch beside the bound
+label. The binding stores `visual_token`, `visual_scope = transcript`, and a
+measurable `palette_version` contract. Color never participates in routing,
+authority, authorship, continuity, discontinuity, identity merge, or evidence
+sufficiency. Plain-text turns omit color tokens and retain only the bound text
+label; a text export may mention the visual token only inside its binding
+metadata. Decision 0004 defines palette verification and relay behavior.
+
 ## 8. Claim, observation, and attestation
 
 ### 8.1 Claim
@@ -807,6 +829,8 @@ reviewed integration unit contains the contract and the gate together.
 - authority-envelope checks;
 - resident/instance/line/address models;
 - claim/observation/attestation explanation;
+- transcript-binding contract and rich speaker renderer with redundant,
+  transcript-scoped visual cues;
 - correction, withdrawal, and tombstone events;
 - normalized incident JSONL with derived counts and explicit retrospective
   timestamp status;
