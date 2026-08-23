@@ -18,6 +18,7 @@ from .identifier import evaluate_identifier_fixture
 from .ledger import LedgerStatus, verify_ledger
 from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
+from .phase2 import validate_basic_phase2
 from .sqlite_projection import rebuild_sqlite, table_row_counts
 from .adapters.codex_queue import normalize_codex_queue
 from .application import evaluate_application
@@ -108,6 +109,18 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="validate Basic Phase 1B/1C repository artifacts"
     )
     phase1bc_verify.add_argument("root", type=Path)
+
+    phase2 = commands.add_parser(
+        "phase2", help="run the integrated Basic Phase 2 compatibility gate"
+    )
+    phase2_commands = phase2.add_subparsers(dest="phase2_command")
+    phase2_verify = phase2_commands.add_parser(
+        "verify", help="validate Basic Phase 2 against a pinned SEDB archive"
+    )
+    phase2_verify.add_argument("root", type=Path)
+    phase2_verify.add_argument(
+        "--sedb-archive", required=True, type=Path
+    )
     return parser
 
 
@@ -220,6 +233,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.passed else 1
     if args.command == "phase1bc" and args.phase1bc_command == "verify":
         report = validate_phase1bc(args.root)
+        _print_json(report.as_json())
+        return 0 if report.passed else 1
+    if args.command == "phase2" and args.phase2_command == "verify":
+        report = validate_basic_phase2(args.root, args.sedb_archive)
         _print_json(report.as_json())
         return 0 if report.passed else 1
     if args.command == "application" and args.application_command == "check":
