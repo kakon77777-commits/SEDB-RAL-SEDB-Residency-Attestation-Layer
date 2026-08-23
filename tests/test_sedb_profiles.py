@@ -17,11 +17,16 @@ def load(relative: str):
 def test_adoption_profile_pins_exact_package():
     profile = load("profiles/sedb-v0.4b-adoption.json")
 
+    assert profile["archive_filename"] == "SEDB-v0.4B-local.zip"
+    assert profile["archive_size"] == 8980052
     assert profile["archive_sha256"] == (
         "159F0928415811A434E885D50E94846266474725723D25DAC426170874B844D8"
     )
+    assert profile["package_name"] == "sedb-local"
     assert profile["package_version"] == "0.4.0b1"
     assert profile["source_commit"] == "139b9952bb283b2e95f7690d76e3c5fbcdc680aa"
+    assert profile["manifest_path"] == "MANIFEST.sha256"
+    assert profile["manifest_entry_count"] == 114
     assert profile["adoption_status"] == "candidate"
     validate_contract(
         "sedb-adoption.schema.json", profile, schema_root=SCHEMA_ROOT
@@ -74,21 +79,46 @@ def test_mapping_has_one_rule_per_projected_value():
 
 
 @pytest.mark.parametrize(
-    "fixture_name",
-    ["wrong-archive-hash.json", "wrong-source-commit.json"],
+    ("fixture_name", "corrupted_field"),
+    [
+        ("wrong-archive-hash.json", "archive_sha256"),
+        ("wrong-source-commit.json", "source_commit"),
+    ],
 )
-def test_corrupted_adoption_fixtures_fail_the_pinned_contract(fixture_name):
+def test_corrupted_adoption_fixtures_preserve_other_pins_and_fail_contract(
+    fixture_name, corrupted_field
+):
+    profile = load("profiles/sedb-v0.4b-adoption.json")
+    fixture = load(f"fixtures/sedb/{fixture_name}")
+
+    assert {
+        key: value for key, value in fixture.items() if key != corrupted_field
+    } == {
+        key: value for key, value in profile.items() if key != corrupted_field
+    }
     with pytest.raises(RALValidationError, match="schema_invalid"):
         validate_contract(
             "sedb-adoption.schema.json",
-            load(f"fixtures/sedb/{fixture_name}"),
+            fixture,
             schema_root=SCHEMA_ROOT,
         )
 
 
-def test_unobserved_archive_facts_are_never_coerced_to_false():
+@pytest.mark.parametrize(
+    ("field", "corrupted_value"),
+    [
+        ("archive_filename", "SEDB-v0.4B-other.zip"),
+        ("archive_size", 8980053),
+        ("package_name", "sedb-other"),
+        ("manifest_path", "MANIFEST.other"),
+        ("manifest_entry_count", 113),
+    ],
+)
+def test_each_new_archive_pin_rejects_a_sole_field_corruption(
+    field, corrupted_value
+):
     profile = load("profiles/sedb-v0.4b-adoption.json")
-    profile["archive_size"] = False
+    profile[field] = corrupted_value
 
     with pytest.raises(RALValidationError, match="schema_invalid"):
         validate_contract(

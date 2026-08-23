@@ -1,14 +1,14 @@
 {
   "profile_id": "sedb-v0.4b-adoption",
   "profile_version": "1",
-  "archive_filename": null,
-  "archive_size": null,
+  "archive_filename": "SEDB-v0.4B-local.zip",
+  "archive_size": 8980052,
   "archive_sha256": "159F0928415811A434E885D50E94846266474725723D25DAC426170874B844D8",
-  "package_name": null,
+  "package_name": "sedb-local",
   "package_version": "0.4.0b1",
   "source_commit": "0000000000000000000000000000000000000000",
-  "manifest_path": null,
-  "manifest_entry_count": null,
+  "manifest_path": "MANIFEST.sha256",
+  "manifest_entry_count": 114,
   "validation_claim_source": null,
   "adoption_status": "candidate"
 }
