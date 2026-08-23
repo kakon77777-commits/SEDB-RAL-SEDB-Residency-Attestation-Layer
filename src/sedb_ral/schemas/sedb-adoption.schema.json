@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/sedb-adoption.schema.json",
+  "title": "SEDB v0.4B Adoption Profile v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_id",
+    "profile_version",
+    "archive_filename",
+    "archive_size",
+    "archive_sha256",
+    "package_name",
+    "package_version",
+    "source_commit",
+    "manifest_path",
+    "manifest_entry_count",
+    "validation_claim_source",
+    "adoption_status"
+  ],
+  "properties": {
+    "profile_id": {"const": "sedb-v0.4b-adoption"},
+    "profile_version": {"const": "1"},
+    "archive_filename": {"type": ["string", "null"], "minLength": 1},
+    "archive_size": {"type": ["integer", "null"], "minimum": 1},
+    "archive_sha256": {
+      "const": "159F0928415811A434E885D50E94846266474725723D25DAC426170874B844D8"
+    },
+    "package_name": {"type": ["string", "null"], "minLength": 1},
+    "package_version": {"const": "0.4.0b1"},
+    "source_commit": {"const": "139b9952bb283b2e95f7690d76e3c5fbcdc680aa"},
+    "manifest_path": {"type": ["string", "null"], "minLength": 1},
+    "manifest_entry_count": {"type": ["integer", "null"], "minimum": 0},
+    "validation_claim_source": {"type": ["string", "null"], "minLength": 1},
+    "adoption_status": {"const": "candidate"}
+  }
+}

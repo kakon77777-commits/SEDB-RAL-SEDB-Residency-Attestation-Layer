@@ -1,0 +1,16 @@
+{
+  "profile_id": "sedb-v0.4b-mapping",
+  "profile_version": "1",
+  "field_namespace": "sedb_ral",
+  "rules": [
+    {"rule_id": "resident-id", "ral_path": "ral.resident_id", "sedb_target": "sedb_ral.resident_id", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects the RAL resident identifier without coercion."},
+    {"rule_id": "application-id", "ral_path": "ral.application_id", "sedb_target": "sedb_ral.application_id", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects the RAL application identifier without coercion."},
+    {"rule_id": "application-status", "ral_path": "ral.application_status", "sedb_target": "sedb_ral.application_status", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects the RAL application status without coercion."},
+    {"rule_id": "instance-refs", "ral_path": "ral.instance_refs", "sedb_target": "sedb_ral.instance_refs", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects RAL instance references without coercion."},
+    {"rule_id": "addresses", "ral_path": "ral.addresses", "sedb_target": "sedb_ral.addresses", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects RAL addresses without coercion."},
+    {"rule_id": "claims", "ral_path": "ral.claims", "sedb_target": "sedb_ral.claims", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects RAL claims without coercion."},
+    {"rule_id": "attestations", "ral_path": "ral.attestations", "sedb_target": "sedb_ral.attestations", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects RAL attestations without coercion."},
+    {"rule_id": "ledger-head", "ral_path": "ral.ledger_head", "sedb_target": "sedb_ral.ledger_head", "value_transform": "identity", "null_policy": "preserve_null", "classification": "mapped", "reason": "Projects the RAL ledger head without coercion."},
+    {"rule_id": "authority", "ral_path": "ral.authority", "sedb_target": null, "value_transform": "not_applicable", "null_policy": "preserve_null", "classification": "intentionally_unmapped", "reason": "This profile does not install or project authority."}
+  ]
+}

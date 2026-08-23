@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/sedb-compatibility-receipt.schema.json",
+  "title": "SEDB Compatibility Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "adoption_profile_id",
+    "adoption_profile_version",
+    "mapping_profile_id",
+    "mapping_profile_version",
+    "compatibility_status",
+    "adoption_status",
+    "evidence_refs"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "receipt_id": {"type": "string", "minLength": 1},
+    "adoption_profile_id": {"const": "sedb-v0.4b-adoption"},
+    "adoption_profile_version": {"const": "1"},
+    "mapping_profile_id": {"const": "sedb-v0.4b-mapping"},
+    "mapping_profile_version": {"const": "1"},
+    "compatibility_status": {
+      "enum": ["compatible", "incompatible", "indeterminate"]
+    },
+    "adoption_status": {"enum": ["adopted", "rejected"]},
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
