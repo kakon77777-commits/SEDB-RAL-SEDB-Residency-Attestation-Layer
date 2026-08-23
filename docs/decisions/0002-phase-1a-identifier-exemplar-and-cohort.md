@@ -1,7 +1,9 @@
 # Decision 0002: Identifier exemplar and claimed cohort contract
 
-**Status:** Accepted for the unreleased Phase 1A contract  
-**Date:** 2026-08-23  
+**Status:** Accepted for the unreleased Phase 1A contract
+
+**Date:** 2026-08-23
+
 **Review anchor:** `ctcl:instant:339f553d-11b6-4c60-9168-cd14419087ab`
 
 ## Context

@@ -1,7 +1,9 @@
 # Decision 0003: Ledger validity requires an externally retained head
 
-**Status:** Accepted for the unreleased Phase 1A contract  
-**Date:** 2026-08-23  
+**Status:** Accepted for the unreleased Phase 1A contract
+
+**Date:** 2026-08-23
+
 **Review anchor:** `ctcl:instant:bfc7939d-d10b-453c-94bc-0028316407b5`
 
 ## Context
