@@ -1,0 +1,116 @@
+{
+  "schema_version": "0.1",
+  "project": "SEDB-RAL",
+  "phase": "1A",
+  "validation": "passed",
+  "validated_source_head": "2b820c425c272e401cf62d7d54919fad82b35336",
+  "test_result": {
+    "collected": 109,
+    "passed": 108,
+    "failed": 0,
+    "skipped": 1,
+    "final_run_status": "confirmed_after_corrected_artifact_closure"
+  },
+  "prerequisite_test_result": {
+    "command": "python -m pytest -q -k not_artifact_closure_tests",
+    "passed": 105,
+    "failed": 0,
+    "skipped": 1,
+    "deselected": 2
+  },
+  "phase1a_gate": {
+    "command": "python scripts/validate_phase1a.py",
+    "exit_code": 0,
+    "output": {
+      "checked_fixtures": [
+        "fixtures/ctcl/reading.json",
+        "fixtures/ctcl/registered-anchor.json",
+        "fixtures/identifier/mixed_population/manifest.json",
+        "fixtures/identifier/mixed_population/one-resident.json",
+        "fixtures/identifier/negative/shared-runtime-tag.json",
+        "fixtures/identifier/positive/resident-address.json",
+        "fixtures/ledger/event-001.json",
+        "fixtures/ledger/event-002.json"
+      ],
+      "checked_schemas": [
+        "ctcl-receipt.schema.json",
+        "identifier-discrimination.schema.json",
+        "identifier-field.schema.json",
+        "ledger-event.schema.json"
+      ],
+      "error_codes": [],
+      "ledger_status": "checkpoint_verified",
+      "observed_decisions": [
+        "admit",
+        "indeterminate",
+        "reject"
+      ],
+      "passed": true
+    }
+  },
+  "build_result": {
+    "command": "python scripts/build_reproducible.py --outdir OUT --source-date-epoch 1787484453",
+    "exit_code": 0,
+    "sdist": "sedb_ral-0.1.0.tar.gz",
+    "wheel": "sedb_ral-0.1.0-py3-none-any.whl",
+    "source_date_epoch": 1787484453,
+    "wheel_sha256": "EF70FE4EEAE3180F1DDC74B2C6C216511FE3ABB0F29E985467060DD8A6369579",
+    "sdist_sha256": "418240EA6C07E41994D9573EDDCB1785B75C11913968DDFB469A7728A0461699",
+    "independent_build_pairs_match": true
+  },
+  "clean_install_result": {
+    "venv": "C:\\Users\\kakon\\AppData\\Local\\Temp\\sedb-ral-phase1a-10b1df2953c447b8a8c1a9c9e9df5ba7",
+    "install_exit_code": 0,
+    "installed_version": "0.1.0",
+    "phase1a_verify_exit_code": 0,
+    "phase1a_verify_passed": true,
+    "out_of_checkout_contract_exit_code": 0,
+    "out_of_checkout_contract_output": {
+      "contract": "ctcl-receipt.schema.json",
+      "valid": true
+    }
+  },
+  "ctcl": {
+    "call_kind": "registered_anchor",
+    "signature_verification_status": "not_performed",
+    "registered": {
+      "id": "ctcl:instant:e41ccac2-e4e5-41ac-aecb-207b8f2e46ba",
+      "unix_ns": "1787484814008000000",
+      "reference_timescale": "utc",
+      "registered_at": "2026-08-23T11:33:34.008Z",
+      "label": "sedb-ral-phase-1a-validation-correction",
+      "from_wall_clock": true,
+      "share": "https://commoninstant.org/i/e41ccac2-e4e5-41ac-aecb-207b8f2e46ba",
+      "signature": {
+        "alg": "Ed25519",
+        "key_id": "ctcl-ed25519-1",
+        "signed_fields": "instant_id|unix_ns|timescale",
+        "value": "E0cCS+maZLPm+fM/cRmd3tdUvq2o67YVwVnlPKFMwCU0pGb+zpQO4IB5GHccgO9GDbczxqzdjRZFCBGsZR5dDg==",
+        "verify": "/v1/pubkey"
+      }
+    },
+    "retrieved": {
+      "id": "ctcl:instant:e41ccac2-e4e5-41ac-aecb-207b8f2e46ba",
+      "unix_ns": "1787484814008000000",
+      "reference_timescale": "utc",
+      "registered_at": "2026-08-23T11:33:34.008Z",
+      "label": "sedb-ral-phase-1a-validation-correction",
+      "from_wall_clock": true,
+      "signature": {
+        "alg": "Ed25519",
+        "key_id": "ctcl-ed25519-1",
+        "signed_fields": "instant_id|unix_ns|timescale",
+        "value": "E0cCS+maZLPm+fM/cRmd3tdUvq2o67YVwVnlPKFMwCU0pGb+zpQO4IB5GHccgO9GDbczxqzdjRZFCBGsZR5dDg==",
+        "verify": "/v1/pubkey"
+      }
+    },
+    "corrects_anchor": "ctcl:instant:03a45699-68b2-4578-99e4-ef83a626c30d",
+    "signature_scope_note": "The CTCL signature covers instant_id|unix_ns|timescale, not metadata, Git state, tests, build artifacts, reproducibility, or authorship."
+  },
+  "known_boundaries": [
+    "The real symlink/reparse test is skipped where Windows privilege is unavailable.",
+    "Power-loss directory-entry durability is not verified.",
+    "SIGKILL or power-loss stale-lock recovery remains deferred.",
+    "Phase 1A contains no SQLite projection, transport send, registrar, or full incident corpus."
+  ]
+}
