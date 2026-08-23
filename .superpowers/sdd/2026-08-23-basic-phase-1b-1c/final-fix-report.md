@@ -439,3 +439,227 @@ python -m pytest -q tests/test_phase1a_checkpoint.py
 - The proposed nudge/status protocol was not implemented.
 - No push, merge, release, deployment, publication, or protected-branch action
   occurred.
+
+## Residual Fix Cycle
+
+### Status and scope
+
+PASS. The controller-authorized residual cycle changed only the three
+load-bearing findings from the final re-review. The implementation commit is
+`cd3ee44da807a6012f7fc52abaadf727b315db16` (`fix: close residual
+Phase 1BC review gaps`). This appended report section is carried by the
+immediately following local documentation commit, identified as `HEAD` at
+handoff and returned with its exact hash in the final response.
+
+No Phase 2 work, push, merge, send, provider CLI, nudge implementation, or
+package-level SEDB import occurred.
+
+### Residual 1 — post-revocation projection authority
+
+RED:
+
+```powershell
+python -m pytest tests/test_projection.py::test_revoked_grant_cannot_authorize_later_acceptance_or_registration -q
+```
+
+```text
+1 failed in 0.74s
+AssertionError: expected application status 'submitted', observed 'accepted'
+```
+
+GREEN:
+
+```powershell
+python -m pytest tests/test_projection.py::test_revoked_grant_cannot_authorize_later_acceptance_or_registration -q
+```
+
+```text
+1 passed in 0.51s
+```
+
+Root cause: `project_events()` indexed `authority.granted` but the
+`authority.revoked` branch only indexed an event/entity relationship; it never
+invalidated the grant for later acceptance.
+
+Minimal fix: projection now records exactly matched revoked grant event IDs.
+A later `application.accepted` bound to one of those IDs remains unapplied with
+`application_authority_grant_revoked`; its following `resident.registered`
+remains unapplied with `resident_registration_not_authorized`. Grant,
+revocation, acceptance, and registration event IDs all remain in
+`source_event_ids`.
+
+### Residual 2 — plan-required test evidence census
+
+RED:
+
+```powershell
+python -m pytest tests/test_phase1bc_gate.py -q -k "task_test_artifact or missing_required_test_artifact"
+```
+
+```text
+17 failed, 7 deselected in 4.32s
+```
+
+All sixteen Task 1–10 test deletions escaped `_required_artifact_errors()`, and
+deleting `tests/test_explain.py` left `validate_phase1bc()` green.
+
+GREEN:
+
+```powershell
+python -m pytest tests/test_phase1bc_gate.py -q -k "task_test_artifact or missing_required_test_artifact"
+```
+
+```text
+17 passed, 7 deselected in 3.95s
+```
+
+`REQUIRED_PHASE1BC_ARTIFACTS` now includes these plan-named test evidence
+files:
+
+- `tests/test_application_commit.py`
+- `tests/test_application_decision.py`
+- `tests/test_codex_queue_adapter.py`
+- `tests/test_delivery.py`
+- `tests/test_explain.py`
+- `tests/test_incidents.py`
+- `tests/test_ledger.py`
+- `tests/test_no_send.py`
+- `tests/test_packaging.py`
+- `tests/test_phase1a_checkpoint.py`
+- `tests/test_phase1a_gate.py`
+- `tests/test_phase1b_contracts.py`
+- `tests/test_phase1bc_gate.py`
+- `tests/test_projection.py`
+- `tests/test_sqlite_projection.py`
+- `tests/test_transcript.py`
+
+Every listed deletion produces its exact
+`required_artifact_missing:tests/...` census error. The full repository gate is
+also executed against a missing `tests/test_explain.py` control. Later Phase 2
+artifacts remain allowed through required-subset semantics. The required
+artifact count increased from 66 to 82.
+
+### Residual 3 — derived shared-root sufficiency
+
+RED:
+
+```powershell
+python -m pytest tests/test_explain.py::test_derived_shared_root_population_cannot_satisfy_independent_root_policy -q
+```
+
+```text
+1 failed in 0.40s
+AssertionError: expected sufficiency 'insufficient', observed 'sufficient'
+```
+
+GREEN:
+
+```powershell
+python -m pytest tests/test_explain.py::test_derived_shared_root_population_cannot_satisfy_independent_root_policy -q
+```
+
+```text
+1 passed in 0.17s
+```
+
+Root cause: sufficiency inspected only each row's declared
+`evidence_independence_status`. Two rows could each declare `independent` while
+sharing one root; the explanation correctly derived population status
+`shared_root`, but that derived result was not an input to policy evaluation.
+
+Minimal fix: `_evaluate_sufficiency()` now consumes the derived population
+evidence-independence status. A policy requiring `independent` roots fails
+closed with `evidence_independence_insufficient` when the population derives
+`shared_root`; derived `unmeasured` or `indeterminate` remains indeterminate.
+
+### Focused residual regression
+
+```powershell
+python -m pytest tests/test_projection.py tests/test_explain.py tests/test_phase1bc_gate.py -q
+```
+
+```text
+51 passed in 19.59s
+```
+
+### Residual full gates
+
+Full suite, executed once for this residual cycle:
+
+```powershell
+python -m pytest -q
+```
+
+```text
+283 passed, 1 skipped in 33.15s
+SKIPPED tests/test_ledger.py:323: directory symlink unavailable: [WinError 1314]
+```
+
+Phase 1A:
+
+```powershell
+python scripts/validate_phase1a.py
+```
+
+Exit `0`:
+
+```json
+{"checked_fixtures":["fixtures/ctcl/reading.json","fixtures/ctcl/registered-anchor.json","fixtures/identifier/mixed_population/manifest.json","fixtures/identifier/mixed_population/one-resident.json","fixtures/identifier/negative/shared-runtime-tag.json","fixtures/identifier/positive/resident-address.json","fixtures/ledger/event-001.json","fixtures/ledger/event-002.json"],"checked_schemas":["ctcl-receipt.schema.json","identifier-discrimination.schema.json","identifier-field.schema.json","ledger-event.schema.json"],"error_codes":[],"ledger_status":"checkpoint_verified","observed_decisions":["admit","indeterminate","reject"],"passed":true}
+```
+
+Basic Phase 1B/1C:
+
+```powershell
+python scripts/validate_phase1bc.py
+```
+
+Exit `0`; the canonical report had `passed:true`, `phase1a_passed:true`,
+`error_codes:[]`, `required_artifact_count:82`, incident count `29`, incident
+SHA-256
+`9a4a504621d6837b0724cbfebc7a9db84a5f260103d9ce585a3087a39a6a3828`,
+`sqlite_bytes_identical:true`, no no-send findings, all seven positive controls
+observed as positive, and all eleven corrupted controls observed with their
+expected red codes.
+
+Installed CLI:
+
+```powershell
+$env:PATH = 'C:\Users\kakon\AppData\Local\Python\pythoncore-3.14-64\Scripts;' + $env:PATH
+sedb-ral phase1bc verify .
+```
+
+Exit `0`; output matched the script gate, including
+`required_artifact_count:82` and `error_codes:[]`.
+
+Remaining gates:
+
+```powershell
+git diff --check
+# exit 0; no output
+
+rg --files -g '*.sqlite3' -g '!*.sqlite3-journal' .
+# exit 1; no matches, expected clean result
+
+python -m pytest -q tests/test_phase1a_checkpoint.py
+# 3 passed in 2.94s
+```
+
+### Residual files changed
+
+- `src/sedb_ral/explain.py`
+- `src/sedb_ral/phase1bc.py`
+- `src/sedb_ral/projection.py`
+- `tests/test_explain.py`
+- `tests/test_phase1bc_gate.py`
+- `tests/test_projection.py`
+- `.superpowers/sdd/2026-08-23-basic-phase-1b-1c/final-fix-report.md`
+
+### Residual concerns and boundary confirmations
+
+- The only unresolved verification limitation remains the Windows
+  directory-symlink privilege skip (`WinError 1314`); no test failed.
+- Canonical source events remain append-only and retained in projection source
+  IDs even when their effect is unapplied.
+- No Phase 2 file or SEDB adapter/import was added under `src/sedb_ral`.
+- No network/provider send, provider CLI, nudge protocol, push, merge, release,
+  deployment, or publication action occurred.
