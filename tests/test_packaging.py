@@ -1,10 +1,11 @@
 import json
 import gzip
+import hashlib
 import io
 import tarfile
 from pathlib import Path
 
-from scripts.build_manifest import build_manifest
+from scripts.build_manifest import build_manifest, verify_manifest_at_commit
 from scripts.build_reproducible import normalize_sdist
 
 ROOT = Path(__file__).parents[1]
@@ -28,9 +29,18 @@ def test_no_phase_1a_sqlite_or_send_adapter():
 
 
 def test_manifest_matches_release_files():
-    assert (ROOT / "SHA256SUMS.txt").read_text(
-        encoding="utf-8"
-    ) == build_manifest(ROOT)
+    checkpoint = json.loads(
+        (ROOT / "PHASE1A_CHECKPOINT.json").read_text(encoding="utf-8")
+    )
+    manifest = (ROOT / "SHA256SUMS.txt").read_text(encoding="utf-8")
+    assert verify_manifest_at_commit(
+        ROOT,
+        manifest,
+        checkpoint["checkpoint_commit"],
+    ) == ()
+    assert checkpoint["manifest_sha256"] == hashlib.sha256(
+        manifest.encode("utf-8")
+    ).hexdigest()
 
 
 def test_manifest_changes_on_mutation_omission_and_extra(tmp_path):
