@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "fixture_id": "fixture:identifier:one-resident:indeterminate:v1",
-  "identifier": {
+  "identifier_exemplar": {
     "schema_version": "0.1",
     "identifier_id": "id:resident-address:single-population:v1",
     "namespace": "agent",
@@ -22,6 +22,8 @@
   "observations": [
     {
       "observation_id": "observation:indeterminate:only:1",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:only",
       "instance_ref": "instance:only:1",
       "runtime_ref": "runtime:shared:1",
@@ -29,6 +31,8 @@
     },
     {
       "observation_id": "observation:indeterminate:only:2",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:only",
       "instance_ref": "instance:only:2",
       "runtime_ref": "runtime:shared:1",

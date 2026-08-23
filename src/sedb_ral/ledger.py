@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
@@ -55,9 +57,17 @@ class AppendReceipt:
     anchor_path: Path
 
 
+class LedgerStatus(str, Enum):
+    EMPTY = "empty"
+    INTERNALLY_CONSISTENT = "internally_consistent"
+    CHECKPOINT_VERIFIED = "checkpoint_verified"
+    INVALID = "invalid"
+
+
 @dataclass(frozen=True)
 class LedgerVerification:
     valid: bool
+    status: LedgerStatus
     event_count: int
     final_chain_digest: str | None
     error_codes: tuple[str, ...]
@@ -98,6 +108,9 @@ def _chain_digest(
 
 
 def _record_digest(value: Mapping[str, object]) -> str:
+    # CHAIN-v1 intentionally hashes canonical event bytes directly. The
+    # reference is meaningful only with the event envelope's explicit
+    # canonicalization_version; it is not the standalone sha256_ref format.
     digest = hashlib.sha256(canonical_bytes(value)).hexdigest()
     return f"{_RECORD_PREFIX}{digest}"
 
@@ -138,6 +151,37 @@ def _load_object(path: Path) -> tuple[dict[str, object], bool]:
     return value, canonical_bytes(value) == raw
 
 
+def _is_reparse_point(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None and is_junction():
+        return True
+    attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    return bool(
+        attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    )
+
+
+def _tree_contains_reparse_point(root: Path) -> bool:
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for current, directories, files in os.walk(
+        root,
+        topdown=True,
+        onerror=raise_walk_error,
+        followlinks=False,
+    ):
+        base = Path(current)
+        if any(
+            _is_reparse_point(base / name)
+            for name in [*directories, *files]
+        ):
+            return True
+    return False
+
+
 def _event_records(
     root: Path,
     errors: list[str] | None = None,
@@ -146,8 +190,28 @@ def _event_records(
     event_root = root / "events"
     if not event_root.exists():
         return records
-    for path in sorted(event_root.rglob("*.json")):
+    try:
+        if (
+            _is_reparse_point(event_root)
+            or not event_root.is_dir()
+            or _tree_contains_reparse_point(event_root)
+        ):
+            if errors is not None:
+                errors.append("storage_layout_invalid")
+            return records
+        paths = sorted(event_root.rglob("*.json"))
+    except OSError:
+        if errors is not None:
+            errors.append("storage_traversal_failed")
+        return records
+    for path in paths:
         try:
+            if _is_reparse_point(path) or not path.resolve().is_relative_to(
+                event_root.resolve()
+            ):
+                raise RALValidationError(
+                    "storage_path_invalid", "event path escapes storage root"
+                )
             value, is_canonical = _load_object(path)
             if not is_canonical and errors is not None:
                 errors.append("event_not_canonical")
@@ -188,8 +252,26 @@ def _anchor_records(
     anchor_root = root / "anchors"
     if not anchor_root.exists():
         return records
-    for path in sorted(anchor_root.glob("*.json")):
+    try:
+        if (
+            _is_reparse_point(anchor_root)
+            or not anchor_root.is_dir()
+            or _tree_contains_reparse_point(anchor_root)
+        ):
+            errors.append("storage_layout_invalid")
+            return records
+        paths = sorted(anchor_root.glob("*.json"))
+    except OSError:
+        errors.append("storage_traversal_failed")
+        return records
+    for path in paths:
         try:
+            if _is_reparse_point(path) or not path.resolve().is_relative_to(
+                anchor_root.resolve()
+            ):
+                raise RALValidationError(
+                    "storage_path_invalid", "anchor path escapes storage root"
+                )
             value, is_canonical = _load_object(path)
             if not is_canonical:
                 errors.append("anchor_not_canonical")
@@ -201,9 +283,18 @@ def _anchor_records(
     return records
 
 
-def verify_ledger(root: Path) -> LedgerVerification:
+def verify_ledger(
+    root: Path,
+    *,
+    expected_final_chain_digest: str | None = None,
+) -> LedgerVerification:
     root = Path(root)
     errors: list[str] = []
+    try:
+        if root.exists() and (_is_reparse_point(root) or not root.is_dir()):
+            errors.append("storage_layout_invalid")
+    except OSError:
+        errors.append("storage_traversal_failed")
     event_records = _event_records(root, errors)
     event_by_seq: dict[int, dict[str, object]] = {}
     seen_event_ids: set[str] = set()
@@ -276,9 +367,27 @@ def verify_ledger(root: Path) -> LedgerVerification:
         if sequence not in event_by_seq:
             errors.append("anchored_event_missing")
 
+    if expected_final_chain_digest is not None:
+        try:
+            _digest_bytes(expected_final_chain_digest, _CHAIN_PREFIX)
+        except RALValidationError:
+            errors.append("external_anchor_invalid")
+        else:
+            if expected_previous != expected_final_chain_digest:
+                errors.append("external_anchor_mismatch")
+
     unique_errors = tuple(sorted(set(errors)))
+    if unique_errors:
+        status = LedgerStatus.INVALID
+    elif not event_records:
+        status = LedgerStatus.EMPTY
+    elif expected_final_chain_digest is None:
+        status = LedgerStatus.INTERNALLY_CONSISTENT
+    else:
+        status = LedgerStatus.CHECKPOINT_VERIFIED
     return LedgerVerification(
-        valid=not unique_errors,
+        valid=status is LedgerStatus.CHECKPOINT_VERIFIED,
+        status=status,
         event_count=len(event_records),
         final_chain_digest=expected_previous,
         error_codes=unique_errors,
@@ -335,6 +444,10 @@ def _publish_immutable(path: Path, content: bytes) -> None:
         raise RALValidationError(
             "immutable_path_exists", str(path)
         ) from error
+    except OSError as error:
+        raise RALValidationError(
+            "immutable_publish_failed", f"{type(error).__name__}: {path}"
+        ) from error
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -343,6 +456,8 @@ def append_event(
     root: Path,
     draft: Mapping[str, object],
     ctcl_receipt: Mapping[str, object],
+    *,
+    expected_previous_chain_digest: str | None,
 ) -> AppendReceipt:
     root = Path(root)
     _validate_draft(draft)
@@ -364,11 +479,22 @@ def append_event(
         )
 
     with _exclusive_append(root):
-        verification = verify_ledger(root)
-        if not verification.valid:
+        verification = verify_ledger(
+            root,
+            expected_final_chain_digest=expected_previous_chain_digest,
+        )
+        if verification.status is LedgerStatus.INVALID:
             raise RALValidationError(
                 "ledger_invalid",
                 ",".join(verification.error_codes),
+            )
+        if (
+            verification.status is LedgerStatus.INTERNALLY_CONSISTENT
+            and expected_previous_chain_digest is None
+        ):
+            raise RALValidationError(
+                "genesis_conflicts_with_existing_ledger",
+                "an existing ledger requires its externally retained head",
             )
         existing = _event_records(root)
         event_ids = {event["event_id"] for _, event in existing}

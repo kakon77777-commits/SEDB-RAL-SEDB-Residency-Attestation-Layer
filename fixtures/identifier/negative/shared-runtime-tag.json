@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "fixture_id": "fixture:identifier:shared-runtime-tag:negative:v1",
-  "identifier": {
+  "identifier_exemplar": {
     "schema_version": "0.1",
     "identifier_id": "id:claimed-resident-address:shared-runtime:v1",
     "namespace": "agent",
@@ -22,6 +22,8 @@
   "observations": [
     {
       "observation_id": "observation:negative:resident-a:1",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
       "resident_ref": "resident:measured:a",
       "instance_ref": "instance:measured:a:1",
       "runtime_ref": "runtime:claude-code:shared",
@@ -29,6 +31,8 @@
     },
     {
       "observation_id": "observation:negative:resident-a:2",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
       "resident_ref": "resident:measured:a",
       "instance_ref": "instance:measured:a:2",
       "runtime_ref": "runtime:claude-code:shared",
@@ -36,6 +40,8 @@
     },
     {
       "observation_id": "observation:negative:resident-b:1",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
       "resident_ref": "resident:measured:b",
       "instance_ref": "instance:measured:b:1",
       "runtime_ref": "runtime:claude-code:shared",
@@ -43,6 +49,8 @@
     },
     {
       "observation_id": "observation:negative:resident-b:2",
+      "namespace": "agent",
+      "identifier_kind": "claimed_resident_address",
       "resident_ref": "resident:measured:b",
       "instance_ref": "instance:measured:b:2",
       "runtime_ref": "runtime:claude-code:shared",

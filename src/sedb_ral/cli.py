@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -29,7 +31,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _print_json(value: object) -> None:
-    print(canonical_bytes(value).decode("utf-8"))
+    sys.stdout.buffer.write(canonical_bytes(value) + b"\n")
+
+
+def _print_input_error(code: str) -> None:
+    _print_json(
+        {
+            "decision": "error",
+            "reason_codes": [code],
+            "distinct_residents": 0,
+            "distinct_values": 0,
+        }
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -39,7 +52,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "identifier" and args.identifier_command == "check":
         try:
-            value = loads_strict(args.file.read_text(encoding="utf-8"))
+            text = args.file.read_text(encoding="utf-8")
+        except UnicodeError:
+            _print_input_error("input_not_utf8")
+            return 1
+        except OSError:
+            _print_input_error("input_unreadable")
+            return 1
+        try:
+            value = loads_strict(text)
+        except json.JSONDecodeError:
+            _print_input_error("input_invalid_json")
+            return 1
+        try:
             result = evaluate_identifier_fixture(value)
         except RALValidationError as error:
             _print_json(

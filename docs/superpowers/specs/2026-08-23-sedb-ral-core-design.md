@@ -168,6 +168,15 @@ sequence within a ledger, causal parent IDs, a record digest, and a chain
 digest. Corrections and withdrawals append new events; they do not rewrite the
 event being corrected.
 
+Phase 1A distinguishes `empty`, `internally_consistent`,
+`checkpoint_verified`, and `invalid`. Internal consistency alone cannot detect
+paired tail deletion or total local erasure. A positive `valid` result therefore
+requires an independently retained expected head digest; without one, a
+non-empty chain is only `internally_consistent`. Append callers explicitly
+declare either genesis (`expected_previous_chain_digest = null`) or the
+externally retained previous head. This makes a reset an explicit claim instead
+of silently treating an erased directory as a verified ledger.
+
 ### 6.5 Projector
 
 The projector rebuilds resident snapshots, address bindings, application
@@ -250,6 +259,21 @@ does not distinguish residents in that measured scope. It may indicate a
 runtime tag, role, pane, or another shared value; choosing among those requires
 a separate namespace contract. Such a value cannot be promoted to a
 resident-unique address from that observation alone.
+
+The Phase 1A fixture embeds an `identifier_exemplar`, not a canonical admitted
+identifier instance. Each observation repeats the exemplar's namespace and
+identifier kind; the exemplar value must occur in the observations. Observation
+IDs are unique, and one `instance_ref` may bind only one claimed resident and
+one claimed runtime inside a fixture. Conclusive within-resident instability or
+cross-resident collision rejects before sample-sufficiency checks. Admission
+requires a same-runtime cohort with at least two residents and the declared
+number of instances per resident.
+
+`resident_ref`, `instance_ref`, and `runtime_ref` remain applicant-claimed
+topology in Phase 1A. Consequently, an `admit` result means only that the value
+discriminates the claimed residents under the claimed runtime grouping. It is
+not receiver-observed identity proof, and no claimed topology field is promoted
+to canonical evidence by this gate.
 
 ### 7.6 Binding
 

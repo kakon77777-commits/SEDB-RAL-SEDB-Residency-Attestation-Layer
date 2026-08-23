@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "fixture_id": "fixture:identifier:resident-address:positive:v1",
-  "identifier": {
+  "identifier_exemplar": {
     "schema_version": "0.1",
     "identifier_id": "id:resident-address:v1",
     "namespace": "agent",
@@ -22,6 +22,8 @@
   "observations": [
     {
       "observation_id": "observation:positive:alice:1",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:alice",
       "instance_ref": "instance:alice:1",
       "runtime_ref": "runtime:shared:1",
@@ -29,6 +31,8 @@
     },
     {
       "observation_id": "observation:positive:alice:2",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:alice",
       "instance_ref": "instance:alice:2",
       "runtime_ref": "runtime:shared:1",
@@ -36,6 +40,8 @@
     },
     {
       "observation_id": "observation:positive:bob:1",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:bob",
       "instance_ref": "instance:bob:1",
       "runtime_ref": "runtime:shared:1",
@@ -43,6 +49,8 @@
     },
     {
       "observation_id": "observation:positive:bob:2",
+      "namespace": "agent",
+      "identifier_kind": "resident_address",
       "resident_ref": "resident:bob",
       "instance_ref": "instance:bob:2",
       "runtime_ref": "runtime:shared:1",

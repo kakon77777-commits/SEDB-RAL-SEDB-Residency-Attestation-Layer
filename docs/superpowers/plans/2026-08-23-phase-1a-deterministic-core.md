@@ -750,6 +750,34 @@ git commit -m "feat: distinguish CTCL readings from anchors"
 
 ---
 
+### Tasks 4–6 review amendments (normative)
+
+The first implementation review found two pre-release contract defects. These
+amendments supersede older illustrative snippets in Tasks 4–6 wherever they
+conflict:
+
+- The fixture property is `identifier_exemplar`, not `identifier`. It is a
+  sample of the kind being tested, not an admitted registry instance.
+- Every observation also carries `namespace` and `identifier_kind`; both must
+  match the exemplar, and the exemplar value must occur in the observation set.
+- Observation IDs are unique. One `instance_ref` binds to one claimed resident
+  and one claimed runtime inside the fixture.
+- Conclusive instability and cross-resident collision reject before positive
+  sample-sufficiency checks. Admission requires one same-runtime cohort with at
+  least two residents and the required number of instances per resident.
+- Phase 1A topology refs remain claimed input. An admit result is conditioned
+  on that claimed grouping and is not receiver-observed identity proof.
+- Ledger states are `empty`, `internally_consistent`,
+  `checkpoint_verified`, and `invalid`; `valid` is true only for
+  `checkpoint_verified` against a caller-supplied external head.
+- `append_event()` requires an explicit `expected_previous_chain_digest`;
+  `null` is an explicit genesis declaration. `verify_ledger()` accepts an
+  optional `expected_final_chain_digest`.
+- CLI input I/O, UTF-8, and JSON-syntax failures return canonical typed error
+  JSON with exit 1. Schema or admission rejection remains exit 2.
+
+Decisions 0002 and 0003 record the rationale and evidence boundaries.
+
 ### Task 4: Define identifier and discrimination contracts
 
 **Files:**
@@ -793,7 +821,7 @@ def test_positive_fixture_matches_contract():
 
 def test_unknown_identifier_field_is_rejected():
     fixture = load_fixture("fixtures/identifier/positive/resident-address.json")
-    fixture["identifier"]["seat"] = "overloaded"
+    fixture["identifier_exemplar"]["seat"] = "overloaded"
     with pytest.raises(RALValidationError, match="schema_invalid"):
         validate_contract("identifier-discrimination.schema.json", fixture)
 
@@ -855,14 +883,14 @@ temporal_evidence.retro_stamped
 temporal_evidence.basis_refs[]
 ```
 
-Its `identifier` property uses the relative JSON Schema reference
+Its `identifier_exemplar` property uses the relative JSON Schema reference
 `"$ref": "identifier-field.schema.json"`. Both schemas have absolute `$id`
 values under `https://evemisslab.com/schemas/sedb-ral/`; Task 3's
 `referencing.Registry` resolves the reference from the same canonical schema
 directory.
 
-Each observation requires `observation_id`, `resident_ref`, `instance_ref`,
-`runtime_ref`, and `observed_value`.
+Each observation requires `observation_id`, `namespace`, `identifier_kind`,
+`resident_ref`, `instance_ref`, `runtime_ref`, and `observed_value`.
 
 Create exact cases:
 
@@ -968,7 +996,7 @@ def test_subject_kind_must_match_discrimination_target():
     fixture = json.loads(
         (ROOT / "positive/resident-address.json").read_text(encoding="utf-8")
     )
-    fixture["identifier"]["subject_kind"] = "runtime"
+    fixture["identifier_exemplar"]["subject_kind"] = "runtime"
     result = evaluate_identifier_fixture(fixture)
     assert result.decision is DiscriminationDecision.REJECT
     assert result.reason_codes == ("identifier_subject_mismatch",)
@@ -1014,7 +1042,7 @@ class DiscriminationResult:
 
 def evaluate_identifier_fixture(value: Mapping[str, object]) -> DiscriminationResult:
     validate_contract("identifier-discrimination.schema.json", value)
-    if value["identifier"]["subject_kind"] != value["discrimination_target"]:
+    if value["identifier_exemplar"]["subject_kind"] != value["discrimination_target"]:
         return DiscriminationResult(
             DiscriminationDecision.REJECT,
             ("identifier_subject_mismatch",),
@@ -1128,8 +1156,8 @@ admissible Phase 1A result.
   `causal_parent_ids`, `recorded_time_ref`, `recorded_time`, and `payload`, plus
   the referenced registered CTCL receipt.
 - Produces:
-  `append_event(root: Path, draft: Mapping[str, object], ctcl_receipt: Mapping[str, object]) -> AppendReceipt` and
-  `verify_ledger(root: Path) -> LedgerVerification`.
+  `append_event(root: Path, draft: Mapping[str, object], ctcl_receipt: Mapping[str, object], *, expected_previous_chain_digest: str | None) -> AppendReceipt` and
+  `verify_ledger(root: Path, *, expected_final_chain_digest: str | None = None) -> LedgerVerification`.
 
 - [ ] **Step 1: Write failing ledger tests**
 
@@ -1262,6 +1290,7 @@ class AppendReceipt:
 @dataclass(frozen=True)
 class LedgerVerification:
     valid: bool
+    status: LedgerStatus
     event_count: int
     final_chain_digest: str | None
     error_codes: tuple[str, ...]
@@ -1446,7 +1475,8 @@ class Phase1AReport:
 4. require at least one admit, reject, and indeterminate result;
 5. require the exact measured negative fixture path;
 6. build a temporary ledger from the sorted checked-in event drafts and the
-   registered-anchor CTCL fixture, then verify that ledger;
+   registered-anchor CTCL fixture, explicitly chaining each append from the
+   prior receipt, then verify against the final receipt's chain digest;
 7. sort report paths and error codes for deterministic output.
 
 - [ ] **Step 4: Implement read-only CLI commands and deterministic JSON output**
@@ -1461,9 +1491,12 @@ class Phase1AReport:
 
 `identifier check FILE` uses the exit codes from Task 5.
 
-`ledger verify ROOT` and `phase1a verify ROOT` return zero only when `passed` or
-`valid` is true. All JSON output uses `canonical_bytes()` and appends one LF at
-the terminal boundary only; the underlying canonical value remains newline-free.
+`ledger verify ROOT --expected-final-chain-digest DIGEST` and
+`phase1a verify ROOT` return zero only when `passed` or checkpoint-backed
+`valid` is true. A ledger checked without an expected head reports
+`internally_consistent` and does not return a success verdict. All JSON output
+uses `canonical_bytes()` and appends one LF at the terminal boundary only; the
+underlying canonical value remains newline-free.
 
 - [ ] **Step 5: Implement the standalone validator wrapper**
 

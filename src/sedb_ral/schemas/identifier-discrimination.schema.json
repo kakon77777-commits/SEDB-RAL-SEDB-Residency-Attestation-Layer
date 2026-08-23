@@ -7,7 +7,7 @@
   "required": [
     "schema_version",
     "fixture_id",
-    "identifier",
+    "identifier_exemplar",
     "discrimination_target",
     "required_instances_per_resident",
     "observations",
@@ -23,7 +23,7 @@
       "type": "string",
       "pattern": "^fixture:[A-Za-z0-9._:/-]+$"
     },
-    "identifier": {
+    "identifier_exemplar": {
       "$ref": "identifier-field.schema.json"
     },
     "discrimination_target": {
@@ -41,6 +41,8 @@
         "additionalProperties": false,
         "required": [
           "observation_id",
+          "namespace",
+          "identifier_kind",
           "resident_ref",
           "instance_ref",
           "runtime_ref",
@@ -48,6 +50,14 @@
         ],
         "properties": {
           "observation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1
+          },
+          "identifier_kind": {
             "type": "string",
             "minLength": 1
           },
@@ -61,7 +71,8 @@
           },
           "runtime_ref": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Phase 1A claimed runtime grouping; not receiver-observed identity evidence"
           },
           "observed_value": {
             "type": "string",
@@ -131,6 +142,13 @@
             "properties": {
               "retro_stamped": {
                 "const": true
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "retro_stamped": {
+                "const": false
               }
             }
           }
