@@ -276,6 +276,46 @@ def test_revoked_grant_cannot_authorize_later_acceptance_or_registration(tmp_pat
     )
 
 
+def test_intervening_revocation_blocks_registration_without_erasing_acceptance(
+    tmp_path,
+):
+    grant, submitted, accepted, registered = copy.deepcopy(
+        committed_events(tmp_path / "ledger")
+    )
+    revocation = {
+        "ledger_seq": 4,
+        "event_id": "evt_authority_revoked_before_registration",
+        "event_type": "authority.revoked",
+        "payload": {
+            "authority_id": accepted["payload"]["authority_id"],
+            "authority_digest": accepted["payload"]["authority_digest"],
+            "authority_grant_event_id": grant["event_id"],
+            "revocation": {
+                "revocation_id": "revocation:projection:2",
+                "authority_id": accepted["payload"]["authority_id"],
+                "reason": "authority revoked after acceptance",
+            },
+        },
+    }
+    registered["ledger_seq"] = 5
+    events = [grant, submitted, accepted, revocation, registered]
+
+    projection = project_events(events)
+
+    application = projection.applications["application:test:1"]
+    assert application["status"] == "accepted"
+    assert application["authority_ref"] == accepted["payload"]["authority_id"]
+    assert application["authority_digest"] == accepted["payload"]["authority_digest"]
+    assert application["authority_grant_event_id"] == grant["event_id"]
+    assert projection.residents == {}
+    assert projection.unapplied_reasons == {
+        registered["event_id"]: "resident_registration_authority_revoked"
+    }
+    assert projection.source_event_ids == tuple(
+        item["event_id"] for item in events
+    )
+
+
 def application_suffix():
     from sedb_ral.application import application_digest
 

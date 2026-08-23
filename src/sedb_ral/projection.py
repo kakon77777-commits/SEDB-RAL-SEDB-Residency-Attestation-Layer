@@ -132,6 +132,19 @@ def project_events(
             if application is None or application.get("status") != "accepted":
                 mark_unapplied(event_id, "resident_registration_not_authorized")
                 continue
+            grant_event_id = application.get("authority_grant_event_id")
+            if (
+                authority_grants.get(grant_event_id)
+                == (
+                    application.get("authority_ref"),
+                    application.get("authority_digest"),
+                )
+                and grant_event_id in revoked_authority_grants
+            ):
+                mark_unapplied(
+                    event_id, "resident_registration_authority_revoked"
+                )
+                continue
             if application["claimed_resident_id"] != resident["resident_id"]:
                 mark_unapplied(
                     event_id, "resident_registration_application_mismatch"
