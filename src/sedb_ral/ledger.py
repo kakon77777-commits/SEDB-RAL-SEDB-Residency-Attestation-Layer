@@ -422,6 +422,24 @@ def verify_ledger(
     )
 
 
+def read_verified_events(
+    root: Path,
+    expected_head: str,
+) -> tuple[dict[str, object], ...]:
+    verification = verify_ledger(
+        root,
+        expected_final_chain_digest=expected_head,
+    )
+    if not verification.valid:
+        code = (
+            verification.error_codes[0]
+            if verification.error_codes
+            else "checkpoint_required"
+        )
+        raise RALValidationError(code, "ledger is not checkpoint verified")
+    return tuple(event for _, event in _event_records(Path(root)))
+
+
 def _validate_draft(draft: Mapping[str, object]) -> None:
     if set(draft) != _DRAFT_FIELDS:
         raise RALValidationError(
