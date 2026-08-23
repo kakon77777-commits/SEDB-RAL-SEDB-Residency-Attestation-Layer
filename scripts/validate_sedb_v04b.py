@@ -105,6 +105,7 @@ def _adapt_sedb_export(
         raise ValueError("sedb_export_mapping_invalid")
 
     ral_paths_by_local_key: dict[str, str] = {}
+    mapped_ral_paths: set[str] = set()
     for rule in rules:
         if not isinstance(rule, Mapping) or rule.get("classification") != "mapped":
             continue
@@ -117,7 +118,12 @@ def _adapt_sedb_export(
             raise ValueError(f"sedb_export_mapping_invalid:{ral_path}")
         if local_key in ral_paths_by_local_key:
             raise ValueError(f"sedb_export_mapping_duplicate:{local_key}")
+        if ral_path in mapped_ral_paths:
+            raise ValueError(
+                f"sedb_export_mapping_duplicate_destination:{ral_path}"
+            )
         ral_paths_by_local_key[local_key] = ral_path
+        mapped_ral_paths.add(ral_path)
 
     adapted: list[dict[str, object]] = []
     for line_number, record in enumerate(records, start=1):
@@ -141,6 +147,40 @@ def _adapt_sedb_export(
             }
         )
     return tuple(adapted)
+
+
+def _tracked_database_type(database_type: type[Any]) -> type[Any]:
+    connections: list[Any] = []
+
+    class TrackedDatabase(database_type):
+        def connect(self) -> Any:
+            connection = super().connect()
+            connections.append(connection)
+            return connection
+
+        @classmethod
+        def close_connection(cls, connection: Any) -> None:
+            try:
+                connection.close()
+            finally:
+                connections[:] = [
+                    tracked for tracked in connections if tracked is not connection
+                ]
+
+        @classmethod
+        def close_all_connections(cls) -> None:
+            first_error: Exception | None = None
+            while connections:
+                connection = connections.pop()
+                try:
+                    connection.close()
+                except Exception as error:
+                    if first_error is None:
+                        first_error = error
+            if first_error is not None:
+                raise first_error
+
+    return TrackedDatabase
 
 
 def run_integration(
@@ -170,20 +210,36 @@ def run_integration(
 
     with _isolated_sedb_api(package_root / "src") as api:
         Database, FieldService, EntityService, ExchangeService = api
-        database = Database(database_path)
-        fields = FieldService(database)
-        entities = EntityService(database)
-        exchange = ExchangeService(database)
+        TrackedDatabase = _tracked_database_type(Database)
+        database = None
+        fields = None
+        entities = None
+        exchange = None
+        try:
+            database = TrackedDatabase(database_path)
+            fields = FieldService(database)
+            entities = EntityService(database)
+            exchange = ExchangeService(database)
 
-        apply_result = apply_sedb_records(expected_records, fields, entities)
-        with database.connect() as connection:
-            integrity_rows = tuple(
-                str(row[0]) for row in connection.execute("PRAGMA integrity_check")
+            apply_result = apply_sedb_records(expected_records, fields, entities)
+            pragma_connection = database.connect()
+            try:
+                integrity_rows = tuple(
+                    str(row[0])
+                    for row in pragma_connection.execute("PRAGMA integrity_check")
+                )
+            finally:
+                TrackedDatabase.close_connection(pragma_connection)
+            database_integrity = (
+                "ok" if integrity_rows == ("ok",) else "\n".join(integrity_rows)
             )
-        database_integrity = (
-            "ok" if integrity_rows == ("ok",) else "\n".join(integrity_rows)
-        )
-        exported_record_count = exchange.export_jsonl(export_path)
+            exported_record_count = exchange.export_jsonl(export_path)
+        finally:
+            exchange = None
+            entities = None
+            fields = None
+            database = None
+            TrackedDatabase.close_all_connections()
 
     raw_exported_records = _read_export(export_path)
     exported_records = _adapt_sedb_export(raw_exported_records, mapping)

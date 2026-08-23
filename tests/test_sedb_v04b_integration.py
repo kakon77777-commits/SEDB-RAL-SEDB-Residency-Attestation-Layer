@@ -1,6 +1,8 @@
 import copy
 import json
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -116,6 +118,28 @@ def test_real_sedb_v04b_round_trip_uses_only_temp_storage(tmp_path):
     } == loaded_before
 
 
+def test_real_integration_temp_tree_deletes_immediately_without_gc():
+    _require_exact_archive()
+
+    with tempfile.TemporaryDirectory(prefix="sedb-ral-v04b-cleanup-") as output:
+        result = run_integration(
+            ARCHIVE,
+            ADOPTION_PROFILE,
+            PROJECTION,
+            MAPPING,
+            output,
+        )
+        temp_root = result.temp_root
+        database_path = result.database_path
+        raw_exported_records = result.raw_exported_records
+
+        shutil.rmtree(temp_root)
+
+        assert not temp_root.exists()
+        assert result.database_path == database_path
+        assert result.raw_exported_records == raw_exported_records
+
+
 def test_invalid_mapping_fails_before_temp_tree_or_sedb_runtime(tmp_path):
     invalid_mapping = copy.deepcopy(MAPPING)
     invalid_mapping["rules"][0]["sedb_target"] = "sedb_ral.wrong"
@@ -190,3 +214,25 @@ def test_v04b_export_adapter_fails_closed_on_unmapped_local_field():
 
     with pytest.raises(ValueError, match="sedb_export_field_unmapped:authority"):
         _adapt_sedb_export(raw_records, MAPPING)
+
+
+def test_v04b_export_adapter_rejects_duplicate_local_key_before_adaptation():
+    mapping = copy.deepcopy(MAPPING)
+    mapping["rules"][1]["sedb_target"] = mapping["rules"][0]["sedb_target"]
+
+    with pytest.raises(
+        ValueError,
+        match="sedb_export_mapping_duplicate:resident_id",
+    ):
+        _adapt_sedb_export((), mapping)
+
+
+def test_v04b_export_adapter_rejects_duplicate_ral_path_before_adaptation():
+    mapping = copy.deepcopy(MAPPING)
+    mapping["rules"][1]["ral_path"] = mapping["rules"][0]["ral_path"]
+
+    with pytest.raises(
+        ValueError,
+        match="sedb_export_mapping_duplicate_destination:ral.resident_id",
+    ):
+        _adapt_sedb_export((), mapping)
