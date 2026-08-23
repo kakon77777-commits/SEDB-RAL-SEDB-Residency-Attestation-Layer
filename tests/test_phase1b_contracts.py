@@ -203,3 +203,33 @@ def test_application_decision_fixtures_use_valid_contract_values(name):
     validate_contract("application.schema.json", value["application"])
     for authority in value["authorities"]:
         validate_contract("authority-envelope.schema.json", authority)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"retro_stamped": True, "temporal_capture_mode": "contemporaneous"},
+        {"retro_stamped": True, "observed_time_ref": TIME},
+        {"retro_stamped": False, "temporal_capture_mode": "retrospective"},
+        {"retro_stamped": False, "observed_time_ref": None},
+        {"recorded_time_ref": "yesterday afternoon"},
+        {"observed_time_ref": "sometime last week"},
+    ],
+)
+def test_incident_temporal_contradictions_are_rejected(changes):
+    value = copy.deepcopy(INCIDENT)
+    value.update(changes)
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        validate_contract("incident-record.schema.json", value)
+
+
+def test_contemporaneous_incident_requires_a_real_observed_instant():
+    value = copy.deepcopy(INCIDENT)
+    value.update(
+        {
+            "retro_stamped": False,
+            "temporal_capture_mode": "contemporaneous",
+            "observed_time_ref": TIME,
+        }
+    )
+    validate_contract("incident-record.schema.json", value)

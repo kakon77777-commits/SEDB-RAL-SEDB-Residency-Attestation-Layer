@@ -270,16 +270,22 @@ git commit -m "feat: apply SEDB projections through injected services"
 **Interfaces:**
 
 - Consumes: verified extracted root and one RAL projection fixture.
-- Produces a temp `sedb.sqlite`, exported JSONL, and a structured own-execution result; no files are committed.
+- Produces `run_integration(archive, adoption_profile, projection, mapping, output) -> SEDBIntegrationResult`, a temp `sedb.sqlite`, exported JSONL, and a structured own-execution result; no files are committed.
 
 - [ ] **Step 1: Write integration tests guarded by exact archive availability**
 
 ```python
 def test_real_sedb_v04b_round_trip(tmp_path):
+    expected_records = project_to_sedb_records(PROJECTION, MAPPING)
     result = run_integration(ARCHIVE, PROFILE, PROJECTION, tmp_path)
     assert result.database_integrity == "ok"
-    assert result.exported_records == EXPECTED_RECORDS
+    assert result.exported_record_count == len(expected_records)
+    assert result.exported_records == expected_records
 ```
+
+`expected_records` is derived exclusively from the RAL projection fixture and
+the checked-in mapping profile before SEDB is invoked. It must never be read
+from, counted from, or regenerated from the SEDB export under test.
 
 If the exact archive is absent, skip with `archive_unavailable`; a wrong archive present is a failure, not a skip.
 

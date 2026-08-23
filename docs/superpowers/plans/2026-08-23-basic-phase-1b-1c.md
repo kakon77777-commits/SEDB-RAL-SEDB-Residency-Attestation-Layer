@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build one authority-gated resident-application vertical slice, deterministic explanation/projections, a machine-consumed incident corpus, and read-only Codex queue delivery diagnostics without adding any send capability.
+**Goal:** Build one authority-gated resident-application vertical slice, deterministic explanation/projections, a machine-consumed incident corpus, and read-only Codex queue delivery diagnostics without adding send capability to the `src/sedb_ral` runtime package.
 
 **Architecture:** Phase 1B adds only contracts consumed by the vertical slice; continuity-line remains deferred, while transcript binding is consumed by a small renderer required by Decision 0004. The canonical file ledger stays authoritative, JSON and SQLite are rebuildable projections, and Phase 1C ingests sanitized evidence fixtures through a four-state adapter matrix.
 
@@ -167,6 +167,13 @@ incident:    id, cls, title, actor_claim, origin_strength, scope, why, status,
              temporal_capture_mode, retro_stamped, observed_time_ref,
              recorded_time_ref, plus optional corrected_by/fix/found_by/lesson/note/severity
 ```
+
+`recorded_time_ref` is always a CTCL instant. `retro_stamped=true` requires
+`temporal_capture_mode=retrospective` and `observed_time_ref=null`;
+`retro_stamped=false` requires `contemporaneous` plus a CTCL
+`observed_time_ref`. Keep both fields for corpus compatibility and record
+`retro_stamped` as a future field-governance deprecation candidate rather than
+silently dropping it.
 
 - [ ] **Step 4: Run contract tests plus one deliberate unknown/null/false mutation per family**
 
@@ -611,7 +618,7 @@ def test_source_tree_contains_no_send_capability():
     assert scan_no_send(ROOT / "src/sedb_ral") == ()
 ```
 
-The AST gate rejects imports/calls for `socket`, `requests`, `urllib.request`, `http.client`, `httpx`, `aiohttp`, and `subprocess` inside `src/sedb_ral`. A copied module containing `socket.create_connection` must turn red.
+The AST gate rejects imports/calls for `socket`, `requests`, `urllib.request`, `http.client`, `httpx`, `aiohttp`, and `subprocess` inside `src/sedb_ral`. It also rejects `import sedb` / `from sedb ...` inside package code; only the isolated validation script may import the extracted external package. Copied modules containing `socket.create_connection` and `import sedb` must each turn red.
 
 - [ ] **Step 2: Run missing-module RED**
 

@@ -16,13 +16,38 @@
     "status": {"type": "string", "minLength": 1},
     "temporal_capture_mode": {"enum": ["contemporaneous", "retrospective"]},
     "retro_stamped": {"type": "boolean"},
-    "observed_time_ref": {"type": ["string", "null"]},
-    "recorded_time_ref": {"type": "string", "minLength": 1},
+    "observed_time_ref": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+      ]
+    },
+    "recorded_time_ref": {"type": "string", "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "corrected_by": {"type": "string", "minLength": 1},
     "fix": {"type": "string", "minLength": 1},
     "found_by": {"type": "string", "minLength": 1},
     "lesson": {"type": "string", "minLength": 1},
     "note": {"type": "string", "minLength": 1},
     "severity": {"type": "string", "minLength": 1}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"retro_stamped": {"const": true}}, "required": ["retro_stamped"]},
+      "then": {
+        "properties": {
+          "temporal_capture_mode": {"const": "retrospective"},
+          "observed_time_ref": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"retro_stamped": {"const": false}}, "required": ["retro_stamped"]},
+      "then": {
+        "properties": {
+          "temporal_capture_mode": {"const": "contemporaneous"},
+          "observed_time_ref": {"type": "string", "pattern": "^ctcl:instant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+        }
+      }
+    }
+  ]
 }
