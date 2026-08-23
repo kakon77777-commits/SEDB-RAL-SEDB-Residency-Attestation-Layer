@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from .canonical import canonical_bytes, loads_strict
 from .contracts import validate_contract
@@ -33,12 +34,15 @@ class DiscriminationResult:
 
 def evaluate_identifier_fixture(
     value: Mapping[str, object],
+    schema_root: Path | None = None,
 ) -> DiscriminationResult:
     normalized = loads_strict(canonical_bytes(value).decode("utf-8"))
     if not isinstance(normalized, dict):
         raise TypeError("canonical identifier fixture must remain an object")
     value = normalized
-    validate_contract("identifier-discrimination.schema.json", value)
+    validate_contract(
+        "identifier-discrimination.schema.json", value, schema_root
+    )
     exemplar = value["identifier_exemplar"]
     if exemplar["subject_kind"] != value["discrimination_target"]:
         return DiscriminationResult(

@@ -8,8 +8,11 @@ from pathlib import Path
 
 from . import __version__
 from .canonical import canonical_bytes, loads_strict
+from .contracts import validate_contract
 from .errors import RALValidationError
 from .identifier import evaluate_identifier_fixture
+from .ledger import LedgerStatus, verify_ledger
+from .phase1a import validate_phase1a
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +30,38 @@ def build_parser() -> argparse.ArgumentParser:
         "check", help="evaluate one discrimination fixture"
     )
     check.add_argument("file", type=Path)
+
+    canonicalize = commands.add_parser(
+        "canonicalize", help="emit strict canonical JSON"
+    )
+    canonicalize.add_argument("file", type=Path)
+
+    contract = commands.add_parser(
+        "contract", help="validate public JSON contracts"
+    )
+    contract_commands = contract.add_subparsers(dest="contract_command")
+    contract_validate = contract_commands.add_parser(
+        "validate", help="validate one JSON file against a contract"
+    )
+    contract_validate.add_argument("contract")
+    contract_validate.add_argument("file", type=Path)
+
+    ledger = commands.add_parser("ledger", help="inspect a file ledger")
+    ledger_commands = ledger.add_subparsers(dest="ledger_command")
+    ledger_verify = ledger_commands.add_parser(
+        "verify", help="verify a ledger without mutating it"
+    )
+    ledger_verify.add_argument("root", type=Path)
+    ledger_verify.add_argument("--expected-final-chain-digest")
+
+    phase1a = commands.add_parser(
+        "phase1a", help="run the integrated Phase 1A gate"
+    )
+    phase1a_commands = phase1a.add_subparsers(dest="phase1a_command")
+    phase1a_verify = phase1a_commands.add_parser(
+        "verify", help="validate Phase 1A repository artifacts"
+    )
+    phase1a_verify.add_argument("root", type=Path)
     return parser
 
 
@@ -61,6 +96,68 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(__version__)
         return 0
+    if args.command == "canonicalize":
+        try:
+            text = args.file.read_text(encoding="utf-8")
+        except UnicodeError:
+            _print_input_error("input_not_utf8")
+            return 1
+        except OSError:
+            _print_input_error("input_unreadable")
+            return 1
+        try:
+            value = loads_strict(text)
+            _print_json(value)
+            return 0
+        except json.JSONDecodeError:
+            _print_input_error("input_invalid_json")
+            return 1
+        except RALValidationError as error:
+            _print_rejection(error.code)
+            return 2
+    if args.command == "contract" and args.contract_command == "validate":
+        try:
+            text = args.file.read_text(encoding="utf-8")
+            value = loads_strict(text)
+            validate_contract(args.contract, value)
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            code = (
+                "input_unreadable"
+                if isinstance(error, OSError)
+                else "input_not_utf8"
+                if isinstance(error, UnicodeError)
+                else "input_invalid_json"
+            )
+            _print_json(
+                {"contract": args.contract, "valid": False, "error_code": code}
+            )
+            return 1
+        except RALValidationError as error:
+            _print_json(
+                {
+                    "contract": args.contract,
+                    "valid": False,
+                    "error_code": error.code,
+                }
+            )
+            return 2
+        _print_json({"contract": args.contract, "valid": True})
+        return 0
+    if args.command == "ledger" and args.ledger_command == "verify":
+        result = verify_ledger(
+            args.root,
+            expected_final_chain_digest=args.expected_final_chain_digest,
+        )
+        _print_json(result.as_json())
+        if result.status is LedgerStatus.CHECKPOINT_VERIFIED:
+            return 0
+        if result.status is LedgerStatus.INVALID:
+            return 2
+        return 3
+    if args.command == "phase1a" and args.phase1a_command == "verify":
+        report = validate_phase1a(args.root)
+        _print_json(report.as_json())
+        return 0 if report.passed else 1
     if args.command == "identifier" and args.identifier_command == "check":
         try:
             text = args.file.read_text(encoding="utf-8")

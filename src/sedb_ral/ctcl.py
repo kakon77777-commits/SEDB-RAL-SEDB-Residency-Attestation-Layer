@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from .contracts import validate_contract
 from .errors import RALValidationError
@@ -31,8 +32,11 @@ def _rfc3339_to_ns(value: str) -> int:
     )
 
 
-def validate_ctcl_receipt(value: Mapping[str, object]) -> None:
-    validate_contract("ctcl-receipt.schema.json", value)
+def validate_ctcl_receipt(
+    value: Mapping[str, object],
+    schema_root: Path | None = None,
+) -> None:
+    validate_contract("ctcl-receipt.schema.json", value, schema_root)
     kind = value["ctcl_call_kind"]
     retrieval = value["retrievability"]
     if kind == "reading" and (

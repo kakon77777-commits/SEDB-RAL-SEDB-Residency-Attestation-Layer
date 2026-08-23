@@ -72,6 +72,15 @@ class LedgerVerification:
     final_chain_digest: str | None
     error_codes: tuple[str, ...]
 
+    def as_json(self) -> dict[str, object]:
+        return {
+            "valid": self.valid,
+            "status": self.status.value,
+            "event_count": self.event_count,
+            "final_chain_digest": self.final_chain_digest,
+            "error_codes": list(self.error_codes),
+        }
+
 
 def _digest_bytes(reference: str, prefix: str) -> bytes:
     if not isinstance(reference, str) or not reference.startswith(prefix):
