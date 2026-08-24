@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sedb-ral"
-version = "0.2.0"
+version = "0.2.1"
 description = "SEDB Residency Attestation Layer deterministic core"
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
-test = ["pytest>=8.3,<9", "build>=1.2,<2"]
+test = ["pytest>=8.3,<9", "build>=1.2,<2", "setuptools>=75"]
 
 [project.scripts]
 sedb-ral = "sedb_ral.cli:entrypoint"
