@@ -174,7 +174,7 @@ def test_clean_installed_wheel_cli_reports_phase2_version(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip() == "0.2.0"
+    assert result.stdout.strip() == "0.2.1"
 
 
 def test_validation_record_has_retrievable_registered_anchor():

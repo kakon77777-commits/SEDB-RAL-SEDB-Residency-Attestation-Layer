@@ -5,7 +5,7 @@ from sedb_ral.cli import entrypoint, main
 
 
 def test_version_is_basic_phase2_version():
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.2.1"
 
 
 def test_help_exits_zero_and_names_basic_phase2(capsys):
@@ -17,7 +17,7 @@ def test_help_exits_zero_and_names_basic_phase2(capsys):
 
 def test_version_flag(capsys):
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "0.2.0"
+    assert capsys.readouterr().out.strip() == "0.2.1"
 
 
 def test_entrypoint_exits_zero(monkeypatch, capsys):
@@ -25,4 +25,4 @@ def test_entrypoint_exits_zero(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         entrypoint()
     assert exc.value.code == 0
-    assert capsys.readouterr().out.strip() == "0.2.0"
+    assert capsys.readouterr().out.strip() == "0.2.1"

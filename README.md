@@ -52,7 +52,7 @@ network:
 
 ```powershell
 python -m build --wheel --no-isolation --outdir dist/clean
-$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.2.0-clean"
+$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.2.1-clean"
 python -m venv $cleanVenv
 & "$cleanVenv\Scripts\python.exe" -m pip install --no-deps `
   (Get-ChildItem dist\clean\*.whl | Select-Object -First 1).FullName
@@ -60,7 +60,7 @@ python -m venv $cleanVenv
 ```
 
 After activation, the equivalent command is `sedb-ral --version`; the Basic
-Phase 2 artifact reports `0.2.0`.
+Phase 2 artifact reports `0.2.1`.
 
 The public contracts ship once under `src/sedb_ral/schemas/`. The repository
 gate requires positive, negative, and indeterminate identifier populations and
