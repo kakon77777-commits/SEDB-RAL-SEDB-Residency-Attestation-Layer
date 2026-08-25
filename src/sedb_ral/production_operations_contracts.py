@@ -18,6 +18,35 @@ ACTIVATION_SCOPES = (ACTIVATION_OPERATION,)
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
 
+def default_dormant_policy() -> dict[str, object]:
+    return ProductionOperationsPolicy.from_dict(
+        bind_document_digest(
+            {
+                "schema": "sedb-ral.production-operations-policy/0.1",
+                "policy_id": "policy:production-dormant-v1",
+                "allowed_operation_kinds": ["inspect", "status"],
+                "intake_enabled": False,
+                "execution_enabled": False,
+                "capabilities": {
+                    "ledger_append": False,
+                    "real_applicant": False,
+                    "private_access": False,
+                    "network_send": False,
+                    "provider_call": False,
+                    "fabric_emit": False,
+                    "mcp_call": False,
+                },
+                "not_claimed": [
+                    "registrar_authority",
+                    "resident_registration",
+                    "private_access",
+                ],
+            },
+            "policy_digest",
+        )
+    ).to_dict()
+
+
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
     canonical = loads_strict(canonical_bytes(dict(value)).decode("utf-8"))
     if not isinstance(canonical, dict):
