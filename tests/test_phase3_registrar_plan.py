@@ -11,6 +11,7 @@ from test_phase3_registration_admission import (
     prepared_registration,
 )
 
+from sedb_ral.canonical import sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.ledger import read_verified_events, verify_ledger
 from sedb_ral.projection import project_events
@@ -202,6 +203,35 @@ def test_commit_rejects_input_changed_after_staging(tmp_path):
             prepared,
             decision,
             changed_authority,
+            CTCL,
+            verified_attestation_refs=VERIFIED,
+        )
+
+    assert not canonical.exists()
+
+
+def test_commit_restages_recomputed_projection_mutation_before_write(
+    tmp_path,
+):
+    canonical, prepared, authority, decision, plan = build_plan(tmp_path)
+    changed = replace(
+        plan,
+        projection_digest=(
+            "sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64
+        ),
+        plan_digest="",
+    )
+    changed = replace(changed, plan_digest=sha256_ref(changed._material()))
+
+    with pytest.raises(
+        RALValidationError, match="registrar_staged_candidate_mismatch"
+    ):
+        commit_admission_plan(
+            canonical,
+            changed,
+            prepared,
+            decision,
+            authority,
             CTCL,
             verified_attestation_refs=VERIFIED,
         )

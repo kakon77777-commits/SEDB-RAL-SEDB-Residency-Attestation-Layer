@@ -12,3 +12,5 @@ dist/
 # Rebuildable outputs are not canonical.
 generated/
 runtime/
+!docs/runtime/
+!docs/runtime/*.md

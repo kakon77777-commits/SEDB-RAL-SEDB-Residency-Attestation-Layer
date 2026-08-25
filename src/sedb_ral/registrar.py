@@ -906,6 +906,29 @@ def commit_admission_plan(
         verified_attestation_refs,
         source_projection,
     )
+    with TemporaryDirectory(
+        prefix="sedb-ral-registrar-restage-"
+    ) as restaging_parent:
+        restaged = _candidate_in_temporary_ledger(
+            canonical_root,
+            source_events,
+            prepared,
+            decision,
+            authority,
+            ctcl_receipt,
+            expected_head=plan.source_head,
+            verified_attestation_refs=verified_attestation_refs,
+            staging_parent=Path(restaging_parent),
+        )
+    if restaged != (
+        plan.candidate_event_ids,
+        plan.candidate_head,
+        plan.projection_digest,
+    ):
+        raise RALValidationError(
+            "registrar_staged_candidate_mismatch",
+            "fresh staging differs from the supplied admission plan",
+        )
     result = commit_application(
         canonical_root,
         prepared.application,

@@ -8,12 +8,37 @@ instances, continuity lines, identifiers, addresses, claims, observations,
 attestations, authority, and delivery state without collapsing those concepts
 into one overloaded identity field.
 
-The project now contains the executable **Basic Phase 2** checkpoint. It keeps
-the Phase 1A deterministic foundations, Phase 1B admission and explanation,
-and Phase 1C read-only delivery evidence, then adds a pinned SEDB v0.4B
-adoption profile, isolated real-package integration, a three-class
-differential, and a guarded compatibility receipt. It does not add
-message-send, registrar, federation, or SEDB canonical-mutation authority.
+The project now contains the executable **Phase 3A synthetic/local registrar
+candidate** at version `0.3.0`. It retains the Basic Phase 2 compatibility
+checkpoint, then adds applicant-self preparation, exact-digest authority,
+projection collision gates, isolated staging, exact-head commit, idempotent
+retry, and partial-prefix detection. It does not create a production registry,
+register a real applicant, add network send/federation, implement Registrar
+MCP or LIMEN B6, access private Residence data, or mutate SEDB canonically.
+
+## Validate Phase 3A from a source checkout
+
+Phase 3A uses only synthetic applicants and temporary ledgers:
+
+```powershell
+python -m pip install -e ".[test]"
+$env:PYTHONPATH = "src"
+python -m pytest -q `
+  tests/test_phase3_registration_prepare.py `
+  tests/test_phase3_schema_assets.py `
+  tests/test_phase3_registration_admission.py `
+  tests/test_phase3_registrar_plan.py `
+  tests/test_phase3_registrar_recovery.py `
+  tests/test_phase3_cli.py `
+  tests/test_phase3a_gate.py
+python scripts/validate_phase3a.py --output phase3a-local.json
+```
+
+The integrated report requires 24 passing cases, 12 executed controls, two
+byte-stable runs, zero real applicants, zero network calls, and zero private
+reads. See
+[`docs/runtime/PHASE3A_REGISTRAR_CORE.md`](docs/runtime/PHASE3A_REGISTRAR_CORE.md)
+for the exact CLI and boundary.
 
 ## Validate Basic Phase 2 from a source checkout
 
@@ -52,15 +77,15 @@ network:
 
 ```powershell
 python -m build --wheel --no-isolation --outdir dist/clean
-$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.2.1-clean"
+$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.3.0-clean"
 python -m venv $cleanVenv
 & "$cleanVenv\Scripts\python.exe" -m pip install --no-deps `
   (Get-ChildItem dist\clean\*.whl | Select-Object -First 1).FullName
 & "$cleanVenv\Scripts\sedb-ral.exe" --version
 ```
 
-After activation, the equivalent command is `sedb-ral --version`; the Basic
-Phase 2 artifact reports `0.2.1`.
+After activation, the equivalent command is `sedb-ral --version`; the Phase
+3A candidate reports `0.3.0`.
 
 The public contracts ship once under `src/sedb_ral/schemas/`. The repository
 gate requires positive, negative, and indeterminate identifier populations and
@@ -109,7 +134,7 @@ integration scripts, and final receipt are not self-contained wheel/sdist resour
 The wheel still ships the package schemas and CLI, but an installed artifact
 alone is not a complete Phase 2 archive validator.
 
-## Read-only CLI
+## CLI
 
 ```text
 sedb-ral canonicalize FILE
@@ -118,6 +143,12 @@ sedb-ral identifier check FILE
 sedb-ral ledger verify ROOT --expected-final-chain-digest DIGEST
 sedb-ral phase1a verify ROOT
 sedb-ral application check APPLICATION_FILE
+sedb-ral application prepare CLAIM HOST [--ids IDS] [--output PREPARED]
+sedb-ral application digest PREPARED
+sedb-ral application explain PREPARED
+sedb-ral registrar plan PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
+sedb-ral registrar admit PLAN PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
+sedb-ral registrar status APPLICATION_DIGEST --ledger-root ROOT --expected-head DIGEST
 sedb-ral project rebuild EVENTS_JSON
 sedb-ral explain claim EVENTS_JSON CLAIM_ID
 sedb-ral diagnose delivery ADAPTER_OBSERVATION_JSON
@@ -135,6 +166,10 @@ Exit codes are semantic:
 ```
 
 All JSON command output is strict canonical UTF-8 plus one terminal LF.
+Registrar mutation requires an exact staged plan and retained head. The literal
+`GENESIS` is the only CLI spelling for a new empty ledger; omission is an
+error. Phase 3A acceptance exercises these writes only in temporary synthetic
+roots.
 
 ## Canonical byte contract
 
@@ -185,19 +220,38 @@ fixtures/ledger/               deterministic event drafts
 - Verified, isolated SEDB v0.4B extraction/application/export with a
   contradiction-authoritative three-class differential.
 
-## Basic Phase 2 exclusions
+## Phase 3A capabilities
+
+- Applicant claim and host observation remain separate canonical inputs.
+- Host-unavailable session data remains null with a structured reason.
+- Authority binds the exact immutable application digest; connection,
+  familiarity, model, title, role, and display name grant no authority.
+- Active native addresses cannot be stolen or silently duplicated; homonymous
+  display labels remain valid.
+- Commit reruns staging before canonical append and requires the exact source
+  head, event sequence, candidate head, and projection digest.
+- Complete retries are idempotent. Partial or conflicting prefixes require an
+  explicit future recovery procedure.
+
+## Phase 3A exclusions
 
 - No transport send.
-- No registrar or federation.
-- No Phase 3.
+- No network federation.
+- No production registry or real applicant admission.
+- No Registrar MCP.
+- No LIMEN B6 identity resolution, pre-turn enforcement, or private opt-in.
 - No automatic resident, instance, or continuity merge.
 - No live-provider read as a prerequisite for core validation.
 - No live SEDB checkout input or mutation.
 - No SEDB canonical mutation.
 
 Generated JSON and SQLite views are rebuildable outputs, never canonical
-authority. Transport execution, registrar/federation behavior, identity merge,
-and Phase 3 remain unauthorized.
+authority. Transport execution, federation, production admission, identity
+merge, private Residence access, release, and deployment remain unauthorized.
+
+The inherited Basic Phase 2 profile itself still grants **No Phase 3** and
+**No registrar or federation** authority; Phase 3A is a separate bounded
+candidate with its own acceptance gate.
 
 ## Core boundary
 
@@ -216,11 +270,12 @@ Wall-clock Time != Causal Order
 The initial design is in
 [`docs/superpowers/specs/2026-08-23-sedb-ral-core-design.md`](docs/superpowers/specs/2026-08-23-sedb-ral-core-design.md).
 
-The approved next direction for applicant-self registration and LIMEN B6 is
-captured for written review in
+The approved design for applicant-self registration and LIMEN B6 is captured
+in
 [`docs/superpowers/specs/2026-08-25-phase3-self-registration-and-limen-b6-design.md`](docs/superpowers/specs/2026-08-25-phase3-self-registration-and-limen-b6-design.md).
-It is a design document only: no Phase 3 registrar, real ledger write, or
-private Residence access is claimed by its presence.
+Its Phase 3A synthetic/local Core is implemented and acceptance-tested here;
+production registration, Registrar MCP, LIMEN B6, and private Residence access
+remain separate future gates.
 
 ## Repository relationship
 
@@ -233,6 +288,8 @@ Codex queue, AI Board, and future transports remain external adapters.
 
 - No existing SEDB, AI Residence, or PMW Fabric files are modified by this
   repository.
+- Phase 3A evidence contains only two synthetic applicants and temporary-ledger
+  heads; it contains no real native task ID or private root content.
 - Only the exact SEDB v0.4B archive profile above is adopted for the local
   Basic Phase 2 compatibility gate; other external artifacts remain evidence.
 - CTCL receipts are stored as temporal evidence; a timestamp string by itself

@@ -50,7 +50,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="sedb-ral",
-        description="SEDB-RAL Basic Phase 2 compatibility gate",
+        description="SEDB-RAL Phase 3A synthetic/local registrar candidate",
     )
     parser.add_argument("--version", action="store_true")
     commands = parser.add_subparsers(dest="command")

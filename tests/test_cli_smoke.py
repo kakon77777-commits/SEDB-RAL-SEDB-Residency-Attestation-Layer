@@ -8,11 +8,11 @@ def test_version_is_phase3a_candidate_version():
     assert __version__ == "0.3.0"
 
 
-def test_help_exits_zero_and_names_basic_phase2(capsys):
+def test_help_exits_zero_and_names_phase3a(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--help"])
     assert exc.value.code == 0
-    assert "SEDB-RAL Basic Phase 2" in capsys.readouterr().out
+    assert "SEDB-RAL Phase 3A" in capsys.readouterr().out
 
 
 def test_version_flag(capsys):
