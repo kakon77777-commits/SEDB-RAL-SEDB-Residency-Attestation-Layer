@@ -37,6 +37,11 @@ from .registration import (
     prepare_registration,
 )
 from .registration_admission import RegistrationDecision
+from .registry_recovery import (
+    create_registry_checkpoint,
+    rehearse_registry_restore,
+    rehearse_registry_rollback,
+)
 from .registry_root import (
     RegistryStorage,
     prepare_registry_candidate,
@@ -188,6 +193,23 @@ def build_parser() -> argparse.ArgumentParser:
     registry_root_status_parser.add_argument("--expected-plan-digest")
     registry_root_status_parser.add_argument("--synthetic-storage-root", type=Path)
     registry_root_status_parser.add_argument("--output", type=Path)
+    registry_checkpoint_root = registry_commands.add_parser(
+        "checkpoint-root", help="create a same-volume copied-value checkpoint"
+    )
+    _add_registry_recovery_common(registry_checkpoint_root)
+    registry_checkpoint_root.add_argument("--checkpoint-id", required=True)
+    registry_restore = registry_commands.add_parser(
+        "rehearse-restore", help="restore a checkpoint into an isolated rehearsal"
+    )
+    _add_registry_recovery_common(registry_restore)
+    registry_restore.add_argument("--checkpoint-root", required=True, type=Path)
+    registry_restore.add_argument("--rehearsal-id", required=True)
+    registry_rollback = registry_commands.add_parser(
+        "rehearse-rollback", help="run corruption and fresh-restore controls"
+    )
+    _add_registry_recovery_common(registry_rollback)
+    registry_rollback.add_argument("--checkpoint-root", required=True, type=Path)
+    registry_rollback.add_argument("--rehearsal-id", required=True)
 
     registry_limen_view = registry_commands.add_parser(
         "limen-view", help="export the public LIMEN RAL view"
@@ -260,6 +282,14 @@ def _add_registry_candidate_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("authority", type=Path)
     parser.add_argument("parent_acl", type=Path)
     parser.add_argument("candidate_acl", type=Path)
+    parser.add_argument("--synthetic-storage-root", type=Path)
+    parser.add_argument("--output", type=Path)
+
+
+def _add_registry_recovery_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--authority", required=True, type=Path)
+    parser.add_argument("--time-ref", required=True)
     parser.add_argument("--synthetic-storage-root", type=Path)
     parser.add_argument("--output", type=Path)
 
@@ -797,6 +827,55 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_plan_digest=args.expected_plan_digest,
                 storage=_registry_storage(args),
             )
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command in {
+        "checkpoint-root",
+        "rehearse-restore",
+        "rehearse-rollback",
+    }:
+        try:
+            authority = _object(
+                _read_json(args.authority), "registry_root_authority_invalid"
+            )
+            storage = _registry_storage(args)
+            if args.registry_command == "checkpoint-root":
+                result = create_registry_checkpoint(
+                    root=args.root,
+                    checkpoint_id=args.checkpoint_id,
+                    authority=authority,
+                    time_ref=args.time_ref,
+                    storage=storage,
+                )
+            elif args.registry_command == "rehearse-restore":
+                result = rehearse_registry_restore(
+                    root=args.root,
+                    checkpoint_root=args.checkpoint_root,
+                    rehearsal_id=args.rehearsal_id,
+                    authority=authority,
+                    time_ref=args.time_ref,
+                    storage=storage,
+                )
+            else:
+                result = rehearse_registry_rollback(
+                    root=args.root,
+                    checkpoint_root=args.checkpoint_root,
+                    rehearsal_id=args.rehearsal_id,
+                    authority=authority,
+                    time_ref=args.time_ref,
+                    storage=storage,
+                )
             _emit_or_write(result, args.output)
         except (
             OSError,

@@ -42,6 +42,13 @@ EXPECTED_FILES = frozenset(
         "evidence/acl-receipt.json",
     }
 )
+RECOVERY_EVIDENCE_FILES = frozenset(
+    {
+        "evidence/checkpoint-receipt.json",
+        "evidence/restore-rehearsal-receipt.json",
+        "evidence/rollback-rehearsal-receipt.json",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -235,6 +242,20 @@ def _tree_digest(root: Path) -> str:
     return sha256_ref(_tree_material(root))
 
 
+def registry_source_material(root: Path) -> dict[str, object]:
+    return {
+        "directories": sorted(EXPECTED_DIRECTORIES),
+        "files": {
+            relative: _raw_sha256(root / relative)
+            for relative in sorted(EXPECTED_FILES)
+        },
+    }
+
+
+def registry_source_digest(root: Path) -> str:
+    return sha256_ref(registry_source_material(root))
+
+
 def _write_new_json(path: Path, value: Mapping[str, object]) -> None:
     try:
         with path.open("xb") as stream:
@@ -268,7 +289,9 @@ def _verify_bound_receipt(value: Mapping[str, object], field: str, code: str) ->
         raise RALValidationError(code, "registry receipt digest differs")
 
 
-def _verify_exact_tree(root: Path) -> dict[str, object]:
+def _verify_exact_tree(
+    root: Path, *, allow_recovery_material: bool = False
+) -> dict[str, object]:
     directories, files = _walk(root)
     _reject_alternate_streams(files)
     _reject_private_markers(root, files)
@@ -282,7 +305,21 @@ def _verify_exact_tree(root: Path) -> dict[str, object]:
         raise RALValidationError(
             "nonempty_ledger", "empty registry ledger contains files"
         )
-    if relative_directories != EXPECTED_DIRECTORIES or relative_files != EXPECTED_FILES:
+    directories_valid = relative_directories == EXPECTED_DIRECTORIES
+    files_valid = relative_files == EXPECTED_FILES
+    if allow_recovery_material:
+        extra_directories = relative_directories - EXPECTED_DIRECTORIES
+        extra_files = relative_files - EXPECTED_FILES
+        directories_valid = EXPECTED_DIRECTORIES <= relative_directories and all(
+            name.startswith(("checkpoints/", "rehearsals/"))
+            for name in extra_directories
+        )
+        files_valid = EXPECTED_FILES <= relative_files and all(
+            name.startswith(("checkpoints/", "rehearsals/"))
+            or name in RECOVERY_EVIDENCE_FILES
+            for name in extra_files
+        )
+    if not directories_valid or not files_valid:
         raise RALValidationError(
             "registry_layout_mismatch",
             "registry layout contains missing or unexpected paths",
@@ -334,6 +371,7 @@ def _verify_exact_tree(root: Path) -> dict[str, object]:
         "resident_count": 0,
         "address_count": 0,
         "candidate_tree_digest": _tree_digest(root),
+        "source_tree_digest": registry_source_digest(root),
     }
 
 
@@ -696,7 +734,7 @@ def registry_root_status(
         raise RALValidationError(
             "registry_root_unavailable", "the final registry root is unavailable"
         )
-    facts = _verify_exact_tree(selected.final)
+    facts = _verify_exact_tree(selected.final, allow_recovery_material=True)
     if (
         expected_plan_digest is not None
         and facts["plan_digest"] != expected_plan_digest
@@ -711,7 +749,7 @@ def registry_root_status(
         "manifest_digest": facts["manifest_digest"],
         "control_digest": facts["control_digest"],
         "plan_digest": facts["plan_digest"],
-        "tree_digest": facts["candidate_tree_digest"],
+        "tree_digest": facts["source_tree_digest"],
         "ledger_event_count": 0,
         "application_count": 0,
         "resident_count": 0,

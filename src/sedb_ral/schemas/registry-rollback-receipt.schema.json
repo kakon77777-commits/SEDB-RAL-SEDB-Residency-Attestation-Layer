@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-rollback-receipt.schema.json",
+  "title": "SEDB-RAL isolated rollback rehearsal receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "rehearsal_id", "registry_id", "checkpoint_digest",
+    "before_corruption_digest", "corrupted_digest", "red_control_error_code",
+    "fresh_restore_digest", "production_digest_before",
+    "production_digest_after", "passed", "created_time_ref", "not_claimed",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-rollback-receipt/0.1"},
+    "rehearsal_id": {"type": "string", "pattern": "^rollback:[0-9a-f-]{36}$"},
+    "registry_id": {"type": "string", "pattern": "^registry:[0-9a-f-]{36}$"},
+    "checkpoint_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "before_corruption_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "corrupted_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "red_control_error_code": {"const": "checkpoint_manifest_digest_mismatch"},
+    "fresh_restore_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "production_digest_before": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "production_digest_after": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "passed": {"const": true},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["production_mutation", "offsite_recovery", "volume_loss_recovery", "private_restore"]},
+    "receipt_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

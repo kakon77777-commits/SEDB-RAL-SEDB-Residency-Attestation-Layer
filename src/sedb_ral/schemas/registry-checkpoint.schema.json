@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-checkpoint.schema.json",
+  "title": "SEDB-RAL registry checkpoint v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "checkpoint_id", "registry_id", "source_root_digest",
+    "source_control_digest", "source_ledger_head", "source_event_count",
+    "manifest_sha256", "snapshot_root", "created_time_ref", "storage_scope",
+    "not_claimed", "checkpoint_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-checkpoint/0.1"},
+    "checkpoint_id": {"type": "string", "pattern": "^checkpoint:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "registry_id": {"type": "string", "pattern": "^registry:[0-9a-f-]{36}$"},
+    "source_root_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "source_control_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "source_ledger_head": {"type": "null"},
+    "source_event_count": {"const": 0},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "snapshot_root": {"const": "snapshot"},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "storage_scope": {"const": "same_volume_local"},
+    "not_claimed": {"const": ["offsite_backup", "volume_loss_recovery", "ransomware_recovery", "private_backup"]},
+    "checkpoint_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

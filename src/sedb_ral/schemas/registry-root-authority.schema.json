@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema", "authority_id", "operation_plan_digest", "exact_root", "scopes",
-    "status", "issued_time_ref", "authorization_basis", "expires_after_use",
+    "status", "issued_time_ref", "authorization_basis", "expires_after_plan_completion",
     "not_claimed", "authority_digest"
   ],
   "properties": {
@@ -18,7 +18,7 @@
     "status": {"enum": ["active", "revoked", "expired", "suspended"]},
     "issued_time_ref": {"type": "string", "minLength": 1},
     "authorization_basis": {"const": "direct_user_instruction"},
-    "expires_after_use": {"const": true},
+    "expires_after_plan_completion": {"const": true},
     "not_claimed": {"const": ["resident_identity", "resident_registration", "private_access", "delete_authority"]},
     "authority_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
   }

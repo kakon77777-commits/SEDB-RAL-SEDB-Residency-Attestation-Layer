@@ -52,7 +52,7 @@ def valid_authority(plan: dict[str, object]) -> dict[str, object]:
         "status": "active",
         "issued_time_ref": TIME_REF,
         "authorization_basis": "direct_user_instruction",
-        "expires_after_use": True,
+        "expires_after_plan_completion": True,
         "not_claimed": [
             "resident_identity",
             "resident_registration",
@@ -244,6 +244,9 @@ SCHEMA_NAMES = (
     "registry-acl-observation.schema.json",
     "production-registry-manifest.schema.json",
     "registry-head-receipt.schema.json",
+    "registry-checkpoint.schema.json",
+    "registry-restore-receipt.schema.json",
+    "registry-rollback-receipt.schema.json",
 )
 
 
