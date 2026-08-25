@@ -21,6 +21,7 @@ from .explain import explain_claim
 from .identifier import evaluate_identifier_fixture
 from .ledger import LedgerStatus, read_verified_events, verify_ledger
 from .limen_public_view import build_limen_public_view
+from .operations.cli import add_operations_parser, handle_operations
 from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
 from .phase2 import validate_basic_phase2
@@ -262,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     phase2_verify.add_argument(
         "--sedb-archive", required=True, type=Path
     )
+    add_operations_parser(commands)
     return parser
 
 
@@ -438,6 +440,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(__version__)
         return 0
+    if args.command == "operations":
+        return handle_operations(args)
     if args.command == "canonicalize":
         try:
             text = args.file.read_text(encoding="utf-8")
