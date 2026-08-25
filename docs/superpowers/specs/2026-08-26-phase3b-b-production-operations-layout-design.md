@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 
-Status: approved approach A; written design awaiting final document review
+Status: approved for implementation by Neo.K on 2026-08-26
 
 ## 1. Goal
 
