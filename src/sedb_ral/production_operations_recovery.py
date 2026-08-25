@@ -391,4 +391,3 @@ def rehearse_versioned_registry_rollback(
     _write_new_json(target / "ROLLBACK-RECEIPT.json", receipt)
     _write_versioned_evidence(selected.final, "rollbacks", f"rollback-{rehearsal_id}", receipt)
     return {**receipt, "rehearsal_path": str(target)}
-

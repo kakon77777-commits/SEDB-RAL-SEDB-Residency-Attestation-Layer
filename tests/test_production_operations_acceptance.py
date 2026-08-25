@@ -48,4 +48,3 @@ def test_report_writer_is_create_only_and_digest_checked(tmp_path):
     tampered = replace(report, report_digest="sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64)
     with pytest.raises(RALValidationError, match="production_operations_acceptance_digest_mismatch"):
         write_production_operations_report(tampered, tmp_path / "tampered.json")
-

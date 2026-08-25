@@ -167,4 +167,3 @@ def test_windows_wrapper_publishes_only_dormant_synthetic_extension(
     assert final["extensions_status"] == "active_dormant"
     assert final["ledger_event_count"] == 0
     assert final["resident_count"] == 0
-

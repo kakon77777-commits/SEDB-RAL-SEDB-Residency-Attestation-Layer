@@ -94,4 +94,3 @@ R3B-C may begin only after exact source/CI/production activation evidence agrees
 It requires one exact host-observed applicant, immutable application digest,
 principal approval, canonical append, public projection, and LIMEN B6A readback.
 Private B6B remains separate opt-in authority.
-

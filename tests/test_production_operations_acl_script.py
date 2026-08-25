@@ -39,4 +39,3 @@ def test_action_script_refuses_wrong_root_before_reading_inputs(tmp_path):
 
     assert result.returncode != 0
     assert "production_operations_activation_failed" in result.stderr
-

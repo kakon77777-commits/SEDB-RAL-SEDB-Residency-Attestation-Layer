@@ -116,4 +116,3 @@ def manifest_value(plan: dict[str, object], policy_digest: str) -> dict[str, obj
         },
         "manifest_digest",
     )
-
