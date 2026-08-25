@@ -106,3 +106,23 @@ def test_plan_cli_reads_verified_status_and_binds_default_policy(
     assert value["registry_id"] == registry_root_status(
         storage=published_storage
     )["registry_id"]
+
+
+def test_acceptance_cli_writes_deterministic_report(tmp_path):
+    output = tmp_path / "acceptance.json"
+
+    code = cli_main(
+        [
+            "registry",
+            "operations-extension-acceptance",
+            "--repo-root",
+            str(Path(__file__).parents[1]),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 0
+    value = json.loads(output.read_text(encoding="utf-8"))
+    assert value["status"] == "pass"
+    assert len(value["cases"]) == 21

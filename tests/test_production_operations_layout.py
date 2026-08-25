@@ -323,6 +323,22 @@ def test_existing_destination_refuses_without_replacement(published_storage):
     assert (published_storage.final / "extensions/index/00000000000000000000.json").read_bytes() == before
 
 
+def test_candidate_acl_on_another_volume_is_refused(published_storage):
+    plan, authority, acl, policy = candidate_inputs(published_storage)
+    changed = dict(plan)
+    changed.pop("plan_digest")
+    changed["volume_identity"] = "volume:sha256:" + "8" * 64
+    changed = bind_document_digest(changed, "plan_digest")
+    authority = authority_value(changed["plan_digest"])
+    candidate = published_storage.parent / changed["candidate_name"]
+    candidate.mkdir()
+
+    with pytest.raises(RALValidationError, match="production_operations_volume_mismatch"):
+        prepare_production_operations_candidate(
+            changed, authority, acl, policy, storage=published_storage
+        )
+
+
 def test_post_move_receipt_is_create_only_and_activates_status(published_storage):
     plan, authority, acl, policy = candidate_inputs(published_storage)
     candidate = published_storage.parent / plan["candidate_name"]

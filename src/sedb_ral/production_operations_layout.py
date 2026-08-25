@@ -150,6 +150,15 @@ def prepare_production_operations_candidate(
             "production_operations_acl_mismatch",
             "candidate ACL fingerprint differs from plan",
         )
+    if (
+        acl_observation.get("volume_identity") != parsed_plan["volume_identity"]
+        or str(acl_observation.get("filesystem", "")).upper()
+        != str(parsed_plan["filesystem"]).upper()
+    ):
+        raise RALValidationError(
+            "production_operations_volume_mismatch",
+            "candidate ACL observation is on another filesystem or volume",
+        )
     verify_registry_acl(
         observation=acl_observation,
         expected_root=_logical_candidate_root(parsed_plan),

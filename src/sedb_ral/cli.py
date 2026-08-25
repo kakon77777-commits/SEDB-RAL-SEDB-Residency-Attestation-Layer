@@ -30,6 +30,10 @@ from .production_operations_contracts import (
     default_dormant_policy,
     plan_production_operations_extension,
 )
+from .production_operations_acceptance import (
+    validate_production_operations,
+    write_production_operations_report,
+)
 from .production_operations_layout import (
     prepare_production_operations_candidate,
     verify_production_operations_candidate,
@@ -249,6 +253,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     operations_status.add_argument("--synthetic-storage-root", type=Path)
     operations_status.add_argument("--output", type=Path)
+    operations_acceptance = registry_commands.add_parser(
+        "operations-extension-acceptance",
+        help="run the deterministic synthetic R3B-B acceptance gate",
+    )
+    operations_acceptance.add_argument("--repo-root", required=True, type=Path)
+    operations_acceptance.add_argument("--output", required=True, type=Path)
 
     registry_limen_view = registry_commands.add_parser(
         "limen-view", help="export the public LIMEN RAL view"
@@ -980,6 +990,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_rejection(code)
             return 1 if code.startswith("input_") else 2
         return 0
+    if args.command == "registry" and args.registry_command == "operations-extension-acceptance":
+        try:
+            report = validate_production_operations(args.repo_root)
+            write_production_operations_report(report, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0 if report.passed else 2
     if args.command == "registry" and args.registry_command in {
         "checkpoint-root",
         "rehearse-restore",
