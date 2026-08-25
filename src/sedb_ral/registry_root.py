@@ -170,7 +170,11 @@ def _has_multiple_hardlinks(path: Path) -> bool:
     return True
 
 
-def _walk(root: Path) -> tuple[list[Path], list[Path]]:
+def _walk(
+    root: Path,
+    *,
+    hardlink_exempt_prefixes: tuple[str, ...] = (),
+) -> tuple[list[Path], list[Path]]:
     directories: list[Path] = []
     files: list[Path] = []
     for current, names, filenames in os.walk(root, followlinks=False):
@@ -199,7 +203,11 @@ def _walk(root: Path) -> tuple[list[Path], list[Path]]:
                     "registry_root_reparse_point",
                     "registry tree contains a reparse point",
                 )
-            if _has_multiple_hardlinks(path):
+            relative = path.relative_to(root).as_posix()
+            hardlink_exempt = any(
+                relative.startswith(prefix) for prefix in hardlink_exempt_prefixes
+            )
+            if not hardlink_exempt and _has_multiple_hardlinks(path):
                 raise RALValidationError(
                     "registry_hard_link_detected",
                     "registry files must be copied values",
@@ -299,8 +307,12 @@ def _raw_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _tree_material(root: Path) -> dict[str, object]:
-    directories, files = _walk(root)
+def _tree_material(
+    root: Path, *, hardlink_exempt_prefixes: tuple[str, ...] = ()
+) -> dict[str, object]:
+    directories, files = _walk(
+        root, hardlink_exempt_prefixes=hardlink_exempt_prefixes
+    )
     _reject_alternate_streams(files)
     return {
         "directories": sorted(_relative(path, root) for path in directories),
@@ -311,8 +323,12 @@ def _tree_material(root: Path) -> dict[str, object]:
     }
 
 
-def _tree_digest(root: Path) -> str:
-    return sha256_ref(_tree_material(root))
+def _tree_digest(
+    root: Path, *, hardlink_exempt_prefixes: tuple[str, ...] = ()
+) -> str:
+    return sha256_ref(
+        _tree_material(root, hardlink_exempt_prefixes=hardlink_exempt_prefixes)
+    )
 
 
 def registry_source_material(root: Path) -> dict[str, object]:
@@ -368,7 +384,20 @@ def _verify_exact_tree(
     allow_recovery_material: bool = False,
     allow_extensions: bool = False,
 ) -> dict[str, object]:
-    directories, files = _walk(root)
+    recovery_hardlink_exemptions = (
+        (
+            "checkpoints/",
+            "rehearsals/",
+            "evidence/checkpoints/",
+            "evidence/restores/",
+            "evidence/rollbacks/",
+        )
+        if allow_recovery_material
+        else ()
+    )
+    directories, files = _walk(
+        root, hardlink_exempt_prefixes=recovery_hardlink_exemptions
+    )
     _reject_alternate_streams(files)
     _reject_private_markers(root, files)
     relative_directories = {_relative(path, root) for path in directories}
@@ -471,7 +500,9 @@ def _verify_exact_tree(
         "application_count": 0,
         "resident_count": 0,
         "address_count": 0,
-        "candidate_tree_digest": _tree_digest(root),
+        "candidate_tree_digest": _tree_digest(
+            root, hardlink_exempt_prefixes=recovery_hardlink_exemptions
+        ),
         "source_tree_digest": registry_source_digest(root),
     }
 

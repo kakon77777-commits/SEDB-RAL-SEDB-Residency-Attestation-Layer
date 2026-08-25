@@ -9,7 +9,6 @@ from .canonical import sha256_ref
 from .errors import RALValidationError
 from .registry_root import (
     RegistryStorage,
-    _has_multiple_hardlinks,
     _read_object,
     _reject_alternate_streams,
     _reject_private_markers,
@@ -50,7 +49,16 @@ def _included(relative: str) -> bool:
 
 
 def _source_material(root: Path) -> dict[str, object]:
-    directories, files = _walk(root)
+    directories, files = _walk(
+        root,
+        hardlink_exempt_prefixes=(
+            "checkpoints/",
+            "rehearsals/",
+            "evidence/checkpoints/",
+            "evidence/restores/",
+            "evidence/rollbacks/",
+        ),
+    )
     _reject_alternate_streams(files)
     _reject_private_markers(root, files)
     return {
@@ -81,7 +89,7 @@ def _manifest_bytes(material: Mapping[str, object]) -> bytes:
 
 
 def _copy_file_new(source: Path, destination: Path) -> None:
-    if source.is_symlink() or _has_multiple_hardlinks(source):
+    if source.is_symlink():
         raise RALValidationError(
             "checkpoint_link_detected", "checkpoint inputs must be copied values"
         )
