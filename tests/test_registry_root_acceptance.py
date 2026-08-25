@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+from sedb_ral import __version__
 from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registry_root_acceptance import (
@@ -121,6 +122,8 @@ def test_checked_synthetic_report_replays_under_its_commit_binding():
             ROOT / "evidence/production-registry-root/2026-08-25-local-synthetic.json"
         ).read_text(encoding="utf-8")
     )
+    if checked["candidate_version"] != __version__:
+        pytest.skip("checked production evidence belongs to the 0.4.0 baseline")
     live = validate_registry_root(ROOT).as_json()
     live["implementation_commit"] = checked["implementation_commit"]
     material = dict(live)

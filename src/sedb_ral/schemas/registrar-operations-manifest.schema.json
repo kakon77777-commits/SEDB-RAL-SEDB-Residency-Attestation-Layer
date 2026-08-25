@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registrar-operations-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operations_generation", "registry_id", "registry_manifest_digest", "registry_control_digest", "registry_source_tree_digest", "policy_activation_ref", "synthetic_only", "production_activation", "fabric_schema_pins", "created_time_ref", "not_claimed", "manifest_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registrar-operations-manifest/0.1"},
+    "operations_generation": {"type": "string", "minLength": 1},
+    "registry_id": {"type": "string", "minLength": 1},
+    "registry_manifest_digest": {"type": "string", "minLength": 1},
+    "registry_control_digest": {"type": "string", "minLength": 1},
+    "registry_source_tree_digest": {"type": "string", "minLength": 1},
+    "policy_activation_ref": {"const": "active-policy/00000000000000000000.json"},
+    "synthetic_only": {"const": true},
+    "production_activation": {"const": false},
+    "fabric_schema_pins": {"type": "array", "items": {"$ref": "https://evemisslab.com/schemas/sedb-ral/foreign-schema-pin.schema.json"}},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "manifest_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

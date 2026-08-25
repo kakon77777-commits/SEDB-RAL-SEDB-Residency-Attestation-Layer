@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registrar-operation-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation_id", "operation_kind", "intake_digest", "application_digest", "target_ref", "authority_artifact_ref", "authority_artifact_digest", "operator_observation_ref", "operator_observation_digest", "policy_digest", "operations_generation", "registry_id", "registry_manifest_digest", "expected_ledger_head", "checkpoint_evidence_ref", "checkpoint_evidence_digest", "foreign_evidence_pins", "created_time_ref", "not_claimed", "operation_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registrar-operation-request/0.1"},
+    "operation_id": {"type": "string", "minLength": 1},
+    "operation_kind": {"enum": ["inspect", "prepare", "plan", "execute", "reject", "withdraw", "suspend_address", "revoke_authority", "status", "export_public"]},
+    "intake_digest": {"type": ["string", "null"], "minLength": 1},
+    "application_digest": {"type": ["string", "null"], "minLength": 1},
+    "target_ref": {"type": ["string", "null"], "minLength": 1},
+    "authority_artifact_ref": {"type": ["string", "null"], "minLength": 1},
+    "authority_artifact_digest": {"type": ["string", "null"], "minLength": 1},
+    "operator_observation_ref": {"type": "string", "minLength": 1},
+    "operator_observation_digest": {"type": "string", "minLength": 1},
+    "policy_digest": {"type": "string", "minLength": 1},
+    "operations_generation": {"type": "string", "minLength": 1},
+    "registry_id": {"type": "string", "minLength": 1},
+    "registry_manifest_digest": {"type": "string", "minLength": 1},
+    "expected_ledger_head": {"type": ["string", "null"], "minLength": 1},
+    "checkpoint_evidence_ref": {"type": ["string", "null"], "minLength": 1},
+    "checkpoint_evidence_digest": {"type": ["string", "null"], "minLength": 1},
+    "foreign_evidence_pins": {"type": "array", "items": {"$ref": "https://evemisslab.com/schemas/sedb-ral/foreign-schema-pin.schema.json"}},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "operation_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

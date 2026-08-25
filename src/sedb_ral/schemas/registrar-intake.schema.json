@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registrar-intake.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "intake_id", "claim_ref", "claim_digest", "host_observation_ref", "host_observation_digest", "prepared_ref", "prepared_digest", "sensitivity", "durable_handoff_ref", "durable_handoff_digest", "received_time_ref", "not_claimed", "intake_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registrar-intake/0.1"},
+    "intake_id": {"type": "string", "minLength": 1},
+    "claim_ref": {"type": "string", "minLength": 1},
+    "claim_digest": {"type": "string", "minLength": 1},
+    "host_observation_ref": {"type": "string", "minLength": 1},
+    "host_observation_digest": {"type": "string", "minLength": 1},
+    "prepared_ref": {"type": ["string", "null"], "minLength": 1},
+    "prepared_digest": {"type": ["string", "null"], "minLength": 1},
+    "sensitivity": {"enum": ["P0", "P1"]},
+    "durable_handoff_ref": {"type": ["string", "null"], "minLength": 1},
+    "durable_handoff_digest": {"type": ["string", "null"], "minLength": 1},
+    "received_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "intake_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

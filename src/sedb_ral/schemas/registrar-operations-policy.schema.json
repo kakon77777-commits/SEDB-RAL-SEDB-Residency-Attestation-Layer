@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registrar-operations-policy.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy_id", "policy_version", "accepted_intake_schemas", "accepted_operator_observation_schemas", "allowed_operation_kinds", "operation_scopes", "max_p0_bytes", "max_p1_bytes", "checkpoint_required_for", "lease_seconds", "public_fields", "capabilities", "synthetic_only", "not_claimed", "policy_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registrar-operations-policy/0.1"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "accepted_intake_schemas": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "accepted_operator_observation_schemas": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "allowed_operation_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["inspect", "prepare", "plan", "execute", "reject", "withdraw", "suspend_address", "revoke_authority", "status", "export_public"]}},
+    "operation_scopes": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "max_p0_bytes": {"type": "integer", "minimum": 1},
+    "max_p1_bytes": {"type": "integer", "minimum": 1},
+    "checkpoint_required_for": {"type": "array", "uniqueItems": true, "items": {"enum": ["inspect", "prepare", "plan", "execute", "reject", "withdraw", "suspend_address", "revoke_authority", "status", "export_public"]}},
+    "lease_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+    "public_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["production_mutation", "real_applicant", "private_access", "network_send", "fabric_emit"],
+      "properties": {
+        "production_mutation": {"type": "boolean"},
+        "real_applicant": {"type": "boolean"},
+        "private_access": {"type": "boolean"},
+        "network_send": {"type": "boolean"},
+        "fabric_emit": {"type": "boolean"}
+      }
+    },
+    "synthetic_only": {"const": true},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "policy_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}
