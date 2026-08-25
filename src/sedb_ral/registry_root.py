@@ -319,6 +319,11 @@ def _verify_exact_tree(
                 allow_extensions
                 and (name == "extensions" or name.startswith("extensions/"))
             )
+            or name in {
+                "evidence/checkpoints",
+                "evidence/restores",
+                "evidence/rollbacks",
+            }
             for name in extra_directories
         )
         files_valid = EXPECTED_FILES <= relative_files and all(
@@ -328,6 +333,16 @@ def _verify_exact_tree(
             or (
                 allow_extensions
                 and name.startswith("evidence/operations-extension-activation-")
+                and name.endswith(".json")
+            )
+            or (
+                name.startswith(
+                    (
+                        "evidence/checkpoints/checkpoint-",
+                        "evidence/restores/restore-",
+                        "evidence/rollbacks/rollback-",
+                    )
+                )
                 and name.endswith(".json")
             )
             for name in extra_files
