@@ -11,6 +11,7 @@ from sedb_ral.production_operations_contracts import (
     ProductionOperationsAuthority,
     ProductionOperationsManifest,
     ProductionOperationsPlan,
+    ProductionOperationsPolicy,
     plan_production_operations_extension,
     verify_production_operations_authority,
 )
@@ -149,3 +150,15 @@ def test_manifest_is_dormant_and_cannot_enable_execution(base_status, dormant_po
     changed = bind_document_digest(changed, "manifest_digest")
     with pytest.raises(RALValidationError):
         ProductionOperationsManifest.from_dict(changed)
+
+
+def test_dormant_policy_allows_only_inspect_and_status(dormant_policy):
+    policy = ProductionOperationsPolicy.from_dict(dormant_policy)
+    assert policy.to_dict()["allowed_operation_kinds"] == ["inspect", "status"]
+
+    changed = deepcopy(dormant_policy)
+    changed.pop("policy_digest")
+    changed["execution_enabled"] = True
+    changed = bind_document_digest(changed, "policy_digest")
+    with pytest.raises(RALValidationError):
+        ProductionOperationsPolicy.from_dict(changed)

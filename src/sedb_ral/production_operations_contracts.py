@@ -132,6 +132,21 @@ class ProductionOperationsManifest(_CanonicalContract):
 
 
 @dataclass(frozen=True)
+class ProductionOperationsPolicy(_CanonicalContract):
+    @classmethod
+    def from_dict(
+        cls, value: Mapping[str, object]
+    ) -> "ProductionOperationsPolicy":
+        return _parse(
+            cls,
+            value,
+            schema_name="production-operations-policy.schema.json",
+            digest_field="policy_digest",
+            digest_code="production_operations_policy_digest_mismatch",
+        )
+
+
+@dataclass(frozen=True)
 class ProductionOperationsActivationCommit(_CanonicalContract):
     @classmethod
     def from_dict(
@@ -293,4 +308,3 @@ def verify_production_operations_authority(
             "production operations authority binds another action",
         )
     return parsed
-

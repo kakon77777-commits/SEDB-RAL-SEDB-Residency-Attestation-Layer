@@ -61,6 +61,7 @@
 - Create: `src/sedb_ral/schemas/production-operations-extension-plan.schema.json`
 - Create: `src/sedb_ral/schemas/production-operations-extension-authority.schema.json`
 - Create: `src/sedb_ral/schemas/production-operations-extension-manifest.schema.json`
+- Create: `src/sedb_ral/schemas/production-operations-policy.schema.json`
 - Create: `src/sedb_ral/schemas/production-operations-activation-commit.schema.json`
 - Create: `src/sedb_ral/schemas/production-operations-activation-receipt.schema.json`
 - Create: `src/sedb_ral/schemas/registry-extension-index.schema.json`

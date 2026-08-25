@@ -166,11 +166,12 @@ R3B-B adds strict, `additionalProperties=false` schemas for:
 
 1. `sedb-ral.production-operations-extension-plan/0.1`
 2. `sedb-ral.production-operations-extension-authority/0.1`
-3. `sedb-ral.production-operations-extension-manifest/0.1`
-4. `sedb-ral.production-operations-activation-commit/0.1`
-5. `sedb-ral.production-operations-activation-receipt/0.1`
-6. `sedb-ral.registry-extension-index/0.1`
-7. `sedb-ral.production-operations-acceptance/0.1`
+3. `sedb-ral.production-operations-policy/0.1`
+4. `sedb-ral.production-operations-extension-manifest/0.1`
+5. `sedb-ral.production-operations-activation-commit/0.1`
+6. `sedb-ral.production-operations-activation-receipt/0.1`
+7. `sedb-ral.registry-extension-index/0.1`
+8. `sedb-ral.production-operations-acceptance/0.1`
 
 Every document uses canonical UTF-8 bytes and a domain-separated
 `sha256:sedb-ral-json-nfc-codepoint-v1:` digest.
