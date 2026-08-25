@@ -121,6 +121,7 @@ def test_inherited_acl_observation_is_rejected_by_the_core(tmp_path):
         )
 
     assert caught.value.code in {
+        "registry_acl_owner_mismatch",
         "registry_acl_inheritance_enabled",
         "registry_acl_required_access_missing",
         "registry_acl_broad_write",
