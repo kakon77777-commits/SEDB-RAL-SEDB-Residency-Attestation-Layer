@@ -113,6 +113,34 @@ if ($LASTEXITCODE -ne 0) {
     throw "production operations candidate preparation failed"
 }
 
+$candidateExtensions = Join-Path $candidate "extensions"
+Set-ProtectedOperationsAcl `
+    -LiteralPath $candidateExtensions `
+    -OwnerSid $plan.expected_owner_sid
+$candidateExtensionsAclJson = & $aclObserver `
+    -Root $candidateExtensions `
+    -LogicalRoot "$exactRoot\extensions" `
+    -ExpectedOwnerSid $plan.expected_owner_sid `
+    -TimeRef $plan.time_ref `
+    -PythonExe $PythonExe
+if ($LASTEXITCODE -ne 0) {
+    throw "production operations candidate extensions ACL observation failed"
+}
+$candidateExtensionsAcl = $candidateExtensionsAclJson | ConvertFrom-Json
+if (
+    -not $candidateExtensionsAcl.inheritance_protected -or
+    @($candidateExtensionsAcl.forbidden_write_sids).Count -ne 0 -or
+    $candidateExtensionsAcl.acl_fingerprint -cne $plan.acl_fingerprint
+) {
+    throw "production operations candidate extensions ACL differs"
+}
+$candidateExtensionsAclPath = Join-Path $output.FullName "candidate-extensions-acl.json"
+[System.IO.File]::WriteAllText(
+    $candidateExtensionsAclPath,
+    [string]::Join("`n", @($candidateExtensionsAclJson)),
+    [System.Text.UTF8Encoding]::new($false)
+)
+
 $publishCode = @'
 import json
 import sys
@@ -139,6 +167,30 @@ if ($LASTEXITCODE -ne 0) {
 [System.IO.File]::WriteAllText(
     $publishPath,
     [string]::Join("`n", @($published)),
+    [System.Text.UTF8Encoding]::new($false)
+)
+
+$finalExtensionsAclJson = & $aclObserver `
+    -Root $finalExtensions `
+    -LogicalRoot "$exactRoot\extensions" `
+    -ExpectedOwnerSid $plan.expected_owner_sid `
+    -TimeRef $plan.time_ref `
+    -PythonExe $PythonExe
+if ($LASTEXITCODE -ne 0) {
+    throw "production operations final extensions ACL observation failed"
+}
+$finalExtensionsAcl = $finalExtensionsAclJson | ConvertFrom-Json
+if (
+    -not $finalExtensionsAcl.inheritance_protected -or
+    @($finalExtensionsAcl.forbidden_write_sids).Count -ne 0 -or
+    $finalExtensionsAcl.acl_fingerprint -cne $plan.acl_fingerprint
+) {
+    throw "production operations final extensions ACL differs"
+}
+$finalExtensionsAclPath = Join-Path $output.FullName "final-extensions-acl.json"
+[System.IO.File]::WriteAllText(
+    $finalExtensionsAclPath,
+    [string]::Join("`n", @($finalExtensionsAclJson)),
     [System.Text.UTF8Encoding]::new($false)
 )
 

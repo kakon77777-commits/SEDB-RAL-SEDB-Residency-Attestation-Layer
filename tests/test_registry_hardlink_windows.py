@@ -45,6 +45,23 @@ def test_windows_name_enumeration_overrides_false_positive_nlink(
     assert _has_multiple_hardlinks(source) is False
 
 
+def test_transient_second_link_name_must_repeat_before_rejection(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "source.json"
+    target = tmp_path / "target.json"
+    source.write_text("{}", encoding="utf-8")
+    make_hardlink(source, target)
+    observations = iter((("source", "transient-copy"), ("source",)))
+    monkeypatch.setattr(
+        registry_root,
+        "_windows_hardlink_names",
+        lambda _path: next(observations),
+    )
+
+    assert _has_multiple_hardlinks(source) is False
+
+
 def test_regular_file_has_one_windows_link_name(tmp_path):
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")

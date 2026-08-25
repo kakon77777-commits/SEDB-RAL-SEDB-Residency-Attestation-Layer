@@ -4,6 +4,7 @@ import ctypes
 import hashlib
 import json
 import os
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,8 +156,12 @@ def _has_multiple_hardlinks(path: Path) -> bool:
         return False
     if os.name != "nt":
         return True
-    names = {name.casefold() for name in _windows_hardlink_names(path)}
-    return len(names) > 1
+    first = {name.casefold() for name in _windows_hardlink_names(path)}
+    if len(first) <= 1:
+        return False
+    time.sleep(0.01)
+    second = {name.casefold() for name in _windows_hardlink_names(path)}
+    return len(second) > 1 and second == first
 
 
 def _walk(root: Path) -> tuple[list[Path], list[Path]]:
