@@ -216,6 +216,12 @@ Wall-clock Time != Causal Order
 The initial design is in
 [`docs/superpowers/specs/2026-08-23-sedb-ral-core-design.md`](docs/superpowers/specs/2026-08-23-sedb-ral-core-design.md).
 
+The approved next direction for applicant-self registration and LIMEN B6 is
+captured for written review in
+[`docs/superpowers/specs/2026-08-25-phase3-self-registration-and-limen-b6-design.md`](docs/superpowers/specs/2026-08-25-phase3-self-registration-and-limen-b6-design.md).
+It is a design document only: no Phase 3 registrar, real ledger write, or
+private Residence access is claimed by its presence.
+
 ## Repository relationship
 
 SEDB-RAL is a sibling of SEDB, not a replacement for it. SEDB supplies the
