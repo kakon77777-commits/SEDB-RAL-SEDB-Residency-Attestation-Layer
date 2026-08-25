@@ -270,7 +270,7 @@ git commit -m "feat: protect the production registry ACL boundary"
 - Create: `tests/test_registry_root_acceptance.py`
 - Create: `docs/runtime/PRODUCTION_REGISTRY_ROOT.md`
 - Create: `evidence/production-registry-root/2026-08-25-local-synthetic.json`
-- Modify: `.github/workflows/ci.yml`
+- Modify: `.github/workflows/phase3a.yml`
 - Modify: `README.md`
 - Modify: `pyproject.toml`
 
@@ -310,7 +310,7 @@ git diff --check
 git add .github README.md pyproject.toml src scripts tests docs/runtime evidence/production-registry-root
 git commit -m "feat: accept production registry root lifecycle"
 git push origin main
-gh run list --workflow ci.yml --branch main --limit 1
+gh run list --workflow phase3a.yml --branch main --limit 1
 gh run watch <run-id> --exit-status
 ```
 
@@ -378,7 +378,7 @@ git diff --check
 git add evidence/production-registry-root/2026-08-25-production.json docs/runtime/PRODUCTION_REGISTRY_ROOT.md
 git commit -m "docs: record P3-4 production registry acceptance"
 git push origin main
-gh run list --workflow ci.yml --branch main --limit 1
+gh run list --workflow phase3a.yml --branch main --limit 1
 gh run watch <run-id> --exit-status
 ```
 
