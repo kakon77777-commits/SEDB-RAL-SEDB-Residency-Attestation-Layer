@@ -166,6 +166,30 @@ class OperationsStore:
             conflict_code="operation_id_digest_conflict",
         )
 
+    def get_request(self, operation_id: str) -> OperationRequest:
+        path = self._operation_path("requests", "request", operation_id)
+        if not path.is_file():
+            raise RALValidationError(
+                "operations_request_unavailable", "operation request is unavailable"
+            )
+        return OperationRequest.from_dict(
+            _read_object(path, "operations_request_invalid_json")
+        )
+
+    def find_intake_by_digest(self, intake_digest: str) -> RegistrarIntake:
+        matches: list[RegistrarIntake] = []
+        for path in sorted((self.workspace.root / "inbox").glob("intake-*.json")):
+            intake = RegistrarIntake.from_dict(
+                _read_object(path, "operations_intake_invalid_json")
+            )
+            if intake.digest == intake_digest:
+                matches.append(intake)
+        if len(matches) != 1:
+            raise RALValidationError(
+                "operations_intake_unavailable", "exact intake is unavailable"
+            )
+        return matches[0]
+
     def write_receipt(self, receipt: OperationReceipt) -> StoreResult:
         value = receipt.to_dict()
         return self._submit(
@@ -175,6 +199,14 @@ class OperationsStore:
             value=value,
             digest_field="receipt_digest",
             conflict_code="operation_receipt_digest_conflict",
+        )
+
+    def get_receipt(self, operation_id: str) -> OperationReceipt | None:
+        path = self._operation_path("receipts", "receipt", operation_id)
+        if not path.is_file():
+            return None
+        return OperationReceipt.from_dict(
+            _read_object(path, "operations_receipt_invalid_json")
         )
 
     def append_audit(self, value: dict[str, object]) -> StoreResult:
@@ -250,6 +282,9 @@ class OperationsStore:
         raise RALValidationError(
             "operations_policy_unavailable", "active policy bytes are unavailable"
         )
+
+    def active_policy(self) -> OperationsPolicy:
+        return self._active_policy()
 
     def acquire_lease(
         self,
