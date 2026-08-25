@@ -42,6 +42,7 @@ def built_wheel(tmp_path_factory):
 def test_candidate_version_is_0_5_0b1():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["version"] == "0.5.0b1"
+    assert "wheel" in project["project"]["optional-dependencies"]["test"]
     assert __version__ == "0.5.0b1"
 
 
