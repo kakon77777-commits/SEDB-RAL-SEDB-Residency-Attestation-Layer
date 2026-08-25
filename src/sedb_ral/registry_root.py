@@ -156,12 +156,18 @@ def _has_multiple_hardlinks(path: Path) -> bool:
         return False
     if os.name != "nt":
         return True
-    first = {name.casefold() for name in _windows_hardlink_names(path)}
-    if len(first) <= 1:
-        return False
-    time.sleep(0.01)
-    second = {name.casefold() for name in _windows_hardlink_names(path)}
-    return len(second) > 1 and second == first
+    stable: set[str] | None = None
+    for attempt in range(20):
+        observed = {name.casefold() for name in _windows_hardlink_names(path)}
+        if len(observed) <= 1:
+            return False
+        if stable is None:
+            stable = observed
+        elif observed != stable:
+            return False
+        if attempt < 19:
+            time.sleep(0.05)
+    return True
 
 
 def _walk(root: Path) -> tuple[list[Path], list[Path]]:

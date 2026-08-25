@@ -52,7 +52,9 @@ def test_transient_second_link_name_must_repeat_before_rejection(
     target = tmp_path / "target.json"
     source.write_text("{}", encoding="utf-8")
     make_hardlink(source, target)
-    observations = iter((("source", "transient-copy"), ("source",)))
+    observations = iter(
+        (("source", "transient-copy"),) * 5 + (("source",),)
+    )
     monkeypatch.setattr(
         registry_root,
         "_windows_hardlink_names",
