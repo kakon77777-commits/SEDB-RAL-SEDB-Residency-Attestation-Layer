@@ -34,6 +34,45 @@ class RegistrationIds:
     address_ids: tuple[str, ...]
     claim_ids: tuple[str, str, str]
 
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> RegistrationIds:
+        expected = {
+            "prepared_id",
+            "application_id",
+            "resident_id",
+            "instance_id",
+            "continuity_line_id",
+            "address_ids",
+            "claim_ids",
+        }
+        if set(value) != expected:
+            raise RALValidationError(
+                "registration_ids_invalid",
+                "registration ID fields do not match",
+            )
+        address_ids = value["address_ids"]
+        claim_ids = value["claim_ids"]
+        scalar_names = expected - {"address_ids", "claim_ids"}
+        if (
+            any(not isinstance(value[name], str) for name in scalar_names)
+            or not isinstance(address_ids, list)
+            or not all(isinstance(item, str) for item in address_ids)
+            or not isinstance(claim_ids, list)
+            or not all(isinstance(item, str) for item in claim_ids)
+        ):
+            raise RALValidationError(
+                "registration_ids_invalid", "registration ID types differ"
+            )
+        return cls(
+            prepared_id=value["prepared_id"],
+            application_id=value["application_id"],
+            resident_id=value["resident_id"],
+            instance_id=value["instance_id"],
+            continuity_line_id=value["continuity_line_id"],
+            address_ids=tuple(address_ids),
+            claim_ids=tuple(claim_ids),
+        )
+
 
 @dataclass(frozen=True)
 class PreparedRegistration:
@@ -64,6 +103,25 @@ class PreparedRegistration:
                 "not_claimed": list(self.not_claimed),
             }
         )
+
+    @classmethod
+    def from_dict(
+        cls, value: Mapping[str, object]
+    ) -> PreparedRegistration:
+        canonical = _canonical_object(value)
+        validate_contract("prepared-registration.schema.json", canonical)
+        prepared = cls(
+            prepared_id=canonical["prepared_id"],
+            applicant_claim=canonical["applicant_claim"],
+            host_observation=canonical["host_observation"],
+            application=canonical["application"],
+            continuity_line_id=canonical["continuity_line_id"],
+            application_digest=canonical["application_digest"],
+            preparation_digest=canonical["preparation_digest"],
+            not_claimed=tuple(canonical["not_claimed"]),
+        )
+        validate_prepared_registration(prepared)
+        return prepared
 
 
 def validate_prepared_registration(prepared: PreparedRegistration) -> None:

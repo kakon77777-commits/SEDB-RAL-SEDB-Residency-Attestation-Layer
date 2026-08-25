@@ -7,25 +7,48 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
+from uuid import uuid4
 
 from . import __version__
+from .adapters.codex_queue import normalize_codex_queue
+from .application import application_digest as digest_application
+from .application import evaluate_application
 from .canonical import canonical_bytes, loads_strict
 from .contracts import validate_contract
 from .delivery import reconstruct_delivery
 from .errors import RALValidationError
 from .explain import explain_claim
 from .identifier import evaluate_identifier_fixture
-from .ledger import LedgerStatus, verify_ledger
+from .ledger import LedgerStatus, read_verified_events, verify_ledger
 from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
 from .phase2 import validate_basic_phase2
+from .registrar import (
+    RegistrarAdmissionPlan,
+    build_admission_plan,
+    commit_admission_plan,
+    inspect_registration_prefix,
+)
+from .registration import (
+    PreparedRegistration,
+    RegistrationIds,
+    prepare_registration,
+)
+from .registration_admission import RegistrationDecision
 from .sqlite_projection import rebuild_sqlite, table_row_counts
-from .adapters.codex_queue import normalize_codex_queue
-from .application import evaluate_application
+
+
+class _CLIUsageError(ValueError):
+    pass
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise _CLIUsageError(message)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         prog="sedb-ral",
         description="SEDB-RAL Basic Phase 2 compatibility gate",
     )
@@ -78,6 +101,44 @@ def build_parser() -> argparse.ArgumentParser:
         "check", help="evaluate one application fixture without committing it"
     )
     application_check.add_argument("file", type=Path)
+    application_prepare = application_commands.add_parser(
+        "prepare", help="prepare an immutable self-registration application"
+    )
+    application_prepare.add_argument("claim", type=Path)
+    application_prepare.add_argument("host_observation", type=Path)
+    application_prepare.add_argument("--ids", type=Path)
+    application_prepare.add_argument("--output", type=Path)
+    application_digest = application_commands.add_parser(
+        "digest", help="emit the bound application digest"
+    )
+    application_digest.add_argument("file", type=Path)
+    application_explain = application_commands.add_parser(
+        "explain", help="emit a non-authoritative human view"
+    )
+    application_explain.add_argument("file", type=Path)
+
+    registrar = commands.add_parser(
+        "registrar", help="stage or admit an exact registration plan"
+    )
+    registrar_commands = registrar.add_subparsers(dest="registrar_command")
+    registrar_plan = registrar_commands.add_parser(
+        "plan", help="stage a candidate without canonical writes"
+    )
+    _add_registrar_common(registrar_plan)
+    registrar_plan.add_argument("--staging-parent", required=True, type=Path)
+    registrar_plan.add_argument("--output", type=Path)
+    registrar_admit = registrar_commands.add_parser(
+        "admit", help="commit an exact staged plan"
+    )
+    registrar_admit.add_argument("plan", type=Path)
+    _add_registrar_common(registrar_admit)
+    registrar_admit.add_argument("--output", type=Path)
+    registrar_status = registrar_commands.add_parser(
+        "status", help="inspect one application under an exact ledger head"
+    )
+    registrar_status.add_argument("application_digest")
+    registrar_status.add_argument("--ledger-root", required=True, type=Path)
+    registrar_status.add_argument("--expected-head", required=True)
 
     project = commands.add_parser("project", help="rebuild a temporary projection")
     project_commands = project.add_subparsers(dest="project_command")
@@ -124,6 +185,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_registrar_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("prepared", type=Path)
+    parser.add_argument("decision", type=Path)
+    parser.add_argument("authority", type=Path)
+    parser.add_argument("--ctcl-receipt", required=True, type=Path)
+    parser.add_argument(
+        "--verified-attestation-refs", required=True, type=Path
+    )
+    parser.add_argument("--ledger-root", required=True, type=Path)
+    parser.add_argument("--expected-head", required=True)
+
+
 def _print_json(value: object) -> None:
     sys.stdout.buffer.write(canonical_bytes(_json_value(value)) + b"\n")
 
@@ -140,6 +213,83 @@ def _json_value(value: object) -> object:
 
 def _read_json(path: Path) -> object:
     return loads_strict(path.read_text(encoding="utf-8"))
+
+
+def _object(value: object, code: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise RALValidationError(code, "input must be a JSON object")
+    return value
+
+
+def _verified_refs(value: object) -> frozenset[str]:
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item for item in value
+    ):
+        raise RALValidationError(
+            "verified_attestation_refs_invalid",
+            "verified attestation refs must be a JSON string array",
+        )
+    if len(value) != len(set(value)):
+        raise RALValidationError(
+            "verified_attestation_refs_invalid",
+            "verified attestation refs must be unique",
+        )
+    return frozenset(value)
+
+
+def _expected_head(value: str) -> str | None:
+    return None if value == "GENESIS" else value
+
+
+def _generated_registration_ids(address_count: int) -> RegistrationIds:
+    token = lambda: str(uuid4())
+    return RegistrationIds(
+        prepared_id=f"prepared:{token()}",
+        application_id=f"application:{token()}",
+        resident_id=f"resident:{token()}",
+        instance_id=f"instance:{token()}",
+        continuity_line_id=f"line:{token()}",
+        address_ids=tuple(
+            f"address:codex_thread:{token()}" for _ in range(address_count)
+        ),
+        claim_ids=(
+            f"claim:{token()}",
+            f"claim:{token()}",
+            f"claim:{token()}",
+        ),
+    )
+
+
+def _emit_or_write(value: object, output: Path | None) -> None:
+    if output is not None:
+        content = canonical_bytes(_json_value(value))
+        try:
+            with output.open("xb") as stream:
+                stream.write(content)
+        except FileExistsError as error:
+            raise RALValidationError(
+                "output_exists", "output path already exists"
+            ) from error
+        except OSError as error:
+            raise RALValidationError(
+                "output_unwritable", "output path cannot be written"
+            ) from error
+    _print_json(value)
+
+
+def _load_registrar_inputs(args):
+    prepared = PreparedRegistration.from_dict(
+        _object(_read_json(args.prepared), "prepared_registration_invalid")
+    )
+    decision = RegistrationDecision.from_dict(
+        _object(_read_json(args.decision), "registration_decision_invalid")
+    )
+    authority = _object(
+        _read_json(args.authority), "authority_envelope_invalid"
+    )
+    ctcl = _object(_read_json(args.ctcl_receipt), "ctcl_receipt_invalid")
+    refs = _verified_refs(_read_json(args.verified_attestation_refs))
+    return prepared, decision, authority, ctcl, refs
 
 
 def _print_input_error(code: str) -> None:
@@ -165,7 +315,11 @@ def _print_rejection(code: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except _CLIUsageError:
+        _print_rejection("cli_usage_error")
+        return 2
     if args.version:
         print(__version__)
         return 0
@@ -239,6 +393,233 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = validate_basic_phase2(args.root, args.sedb_archive)
         _print_json(report.as_json())
         return 0 if report.passed else 1
+    if (
+        args.command == "application"
+        and args.application_command == "prepare"
+    ):
+        try:
+            claim = _object(
+                _read_json(args.claim), "self_application_claim_invalid"
+            )
+            host = _object(
+                _read_json(args.host_observation),
+                "registration_host_observation_invalid",
+            )
+            if args.ids is None:
+                addresses = claim.get("desired_addresses")
+                address_count = len(addresses) if isinstance(addresses, list) else 0
+                ids = _generated_registration_ids(address_count)
+            else:
+                ids = RegistrationIds.from_dict(
+                    _object(
+                        _read_json(args.ids), "registration_ids_invalid"
+                    )
+                )
+            prepared = prepare_registration(claim, host, ids)
+            _emit_or_write(prepared.to_dict(), args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if (
+        args.command == "application"
+        and args.application_command == "digest"
+    ):
+        try:
+            value = _object(
+                _read_json(args.file), "application_document_invalid"
+            )
+            if value.get("schema") == "sedb-ral.prepared-registration/0.1":
+                digest = PreparedRegistration.from_dict(
+                    value
+                ).application_digest
+            else:
+                validate_contract("application.schema.json", value)
+                digest = digest_application(value)
+            _print_json(
+                {
+                    "schema": "sedb-ral.application-digest/0.1",
+                    "application_digest": digest,
+                }
+            )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if (
+        args.command == "application"
+        and args.application_command == "explain"
+    ):
+        try:
+            prepared = PreparedRegistration.from_dict(
+                _object(
+                    _read_json(args.file), "prepared_registration_invalid"
+                )
+            )
+            application = prepared.application
+            _print_json(
+                {
+                    "schema": "sedb-ral.application-human-view/0.1",
+                    "human_view": True,
+                    "canonical_approval_artifact": False,
+                    "prepared_digest": prepared.digest,
+                    "application_digest": prepared.application_digest,
+                    "claimed_resident_id": application[
+                        "claimed_resident_id"
+                    ],
+                    "display_label": application["display_label"],
+                    "address_count": len(application["addresses"]),
+                    "continuity_claim": prepared.applicant_claim[
+                        "continuity_claim"
+                    ],
+                    "not_claimed": [
+                        "registrar_authority",
+                        "canonical_commit",
+                        "private_access",
+                    ],
+                }
+            )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registrar" and args.registrar_command == "plan":
+        try:
+            prepared, decision, authority, ctcl, refs = (
+                _load_registrar_inputs(args)
+            )
+            plan = build_admission_plan(
+                args.ledger_root,
+                prepared,
+                decision,
+                authority,
+                ctcl,
+                expected_head=_expected_head(args.expected_head),
+                verified_attestation_refs=refs,
+                staging_parent=args.staging_parent,
+            )
+            _emit_or_write(plan.to_dict(), args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registrar" and args.registrar_command == "admit":
+        try:
+            prepared, decision, authority, ctcl, refs = (
+                _load_registrar_inputs(args)
+            )
+            plan = RegistrarAdmissionPlan.from_dict(
+                _object(_read_json(args.plan), "registrar_plan_invalid")
+            )
+            if _expected_head(args.expected_head) != plan.source_head:
+                raise RALValidationError(
+                    "cli_expected_head_plan_mismatch",
+                    "CLI expected head differs from the staged plan",
+                )
+            receipt = commit_admission_plan(
+                args.ledger_root,
+                plan,
+                prepared,
+                decision,
+                authority,
+                ctcl,
+                verified_attestation_refs=refs,
+            )
+            _emit_or_write(receipt.to_dict(), args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registrar" and args.registrar_command == "status":
+        try:
+            expected_head = _expected_head(args.expected_head)
+            if expected_head is None:
+                verification = verify_ledger(args.ledger_root)
+                events = ()
+            else:
+                verification = verify_ledger(
+                    args.ledger_root,
+                    expected_final_chain_digest=expected_head,
+                )
+                if not verification.valid:
+                    code = (
+                        verification.error_codes[0]
+                        if verification.error_codes
+                        else "checkpoint_required"
+                    )
+                    raise RALValidationError(
+                        code, "registrar status requires an exact head"
+                    )
+                events = read_verified_events(
+                    args.ledger_root, expected_head
+                )
+            registration_status = inspect_registration_prefix(
+                events, args.application_digest
+            )
+            _print_json(
+                {
+                    "schema": "sedb-ral.registrar-status/0.1",
+                    "checkpoint_verified": verification.valid,
+                    "ledger_status": verification.status.value,
+                    "event_count": verification.event_count,
+                    "final_head": verification.final_chain_digest,
+                    "application_digest": args.application_digest,
+                    "registration_status": registration_status,
+                    "mutated": False,
+                }
+            )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
     if args.command == "application" and args.application_command == "check":
         try:
             fixture = _read_json(args.file)

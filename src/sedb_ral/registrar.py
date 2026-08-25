@@ -100,6 +100,80 @@ class RegistrarAdmissionPlan:
     def to_dict(self) -> dict[str, object]:
         return {**self._material(), "plan_digest": self.plan_digest}
 
+    @classmethod
+    def from_dict(
+        cls, value: Mapping[str, object]
+    ) -> RegistrarAdmissionPlan:
+        expected = {
+            "schema",
+            "source_head",
+            "prepared_digest",
+            "application_digest",
+            "decision_digest",
+            "authority_digest",
+            "ctcl_digest",
+            "verified_attestation_refs",
+            "candidate_event_ids",
+            "candidate_head",
+            "projection_digest",
+            "not_claimed",
+            "plan_digest",
+        }
+        if set(value) != expected:
+            raise RALValidationError(
+                "registrar_plan_invalid", "registrar plan fields differ"
+            )
+        list_fields = (
+            "verified_attestation_refs",
+            "candidate_event_ids",
+            "not_claimed",
+        )
+        string_fields = (
+            "prepared_digest",
+            "application_digest",
+            "decision_digest",
+            "authority_digest",
+            "ctcl_digest",
+            "candidate_head",
+            "projection_digest",
+            "plan_digest",
+        )
+        if (
+            value["schema"] != "sedb-ral.registrar-admission-plan/0.1"
+            or any(
+                not isinstance(value[field], list)
+                or not all(isinstance(item, str) for item in value[field])
+                for field in list_fields
+            )
+            or any(
+                not isinstance(value[field], str) or not value[field]
+                for field in string_fields
+            )
+            or value["source_head"] is not None
+            and not isinstance(value["source_head"], str)
+        ):
+            raise RALValidationError(
+                "registrar_plan_invalid", "registrar plan values differ"
+            )
+        plan = cls(
+            source_head=value["source_head"],
+            prepared_digest=value["prepared_digest"],
+            application_digest=value["application_digest"],
+            decision_digest=value["decision_digest"],
+            authority_digest=value["authority_digest"],
+            ctcl_digest=value["ctcl_digest"],
+            verified_attestation_refs=tuple(
+                value["verified_attestation_refs"]
+            ),
+            candidate_event_ids=tuple(value["candidate_event_ids"]),
+            candidate_head=value["candidate_head"],
+            projection_digest=value["projection_digest"],
+            plan_digest=value["plan_digest"],
+            not_claimed=tuple(value["not_claimed"]),
+        )
+        _validate_plan(plan)
+        return plan
+
 
 @dataclass(frozen=True)
 class RegistrarCommitReceipt:

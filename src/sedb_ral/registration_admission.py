@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .application import evaluate_application
 from .canonical import sha256_ref
+from .errors import RALValidationError
 from .projection import RegistryProjection, continuity_line_for
 from .registration import (
     PreparedRegistration,
@@ -50,6 +51,80 @@ class RegistrationDecision:
 
     def as_json(self) -> dict[str, object]:
         return self.to_dict()
+
+    @classmethod
+    def from_dict(
+        cls, value: Mapping[str, object]
+    ) -> RegistrationDecision:
+        expected = {
+            "schema",
+            "decision",
+            "reason_codes",
+            "prepared_digest",
+            "application_digest",
+            "authority_ref",
+            "resident_id",
+            "address_refs",
+            "mutated",
+            "not_claimed",
+            "digest",
+        }
+        if set(value) != expected:
+            raise RALValidationError(
+                "registration_decision_invalid",
+                "registration decision fields do not match",
+            )
+        if (
+            value["schema"] != "sedb-ral.registration-decision/0.1"
+            or value["decision"] not in {"accept", "defer", "reject"}
+            or not isinstance(value["reason_codes"], list)
+            or not all(
+                isinstance(item, str) for item in value["reason_codes"]
+            )
+            or not isinstance(value["address_refs"], list)
+            or not all(
+                isinstance(item, str) for item in value["address_refs"]
+            )
+            or not isinstance(value["not_claimed"], list)
+            or not all(
+                isinstance(item, str) for item in value["not_claimed"]
+            )
+            or type(value["mutated"]) is not bool
+            or value["authority_ref"] is not None
+            and not isinstance(value["authority_ref"], str)
+        ):
+            raise RALValidationError(
+                "registration_decision_invalid",
+                "registration decision values do not match",
+            )
+        for field in (
+            "prepared_digest",
+            "application_digest",
+            "resident_id",
+            "digest",
+        ):
+            if not isinstance(value[field], str) or not value[field]:
+                raise RALValidationError(
+                    "registration_decision_invalid",
+                    f"registration decision field is invalid: {field}",
+                )
+        decision = cls(
+            decision=value["decision"],
+            reason_codes=tuple(value["reason_codes"]),
+            prepared_digest=value["prepared_digest"],
+            application_digest=value["application_digest"],
+            authority_ref=value["authority_ref"],
+            resident_id=value["resident_id"],
+            address_refs=tuple(value["address_refs"]),
+            mutated=value["mutated"],
+            not_claimed=tuple(value["not_claimed"]),
+        )
+        if decision.digest != value["digest"]:
+            raise RALValidationError(
+                "registration_decision_digest_mismatch",
+                "registration decision differs from its digest",
+            )
+        return decision
 
 
 def _decision(
