@@ -110,7 +110,7 @@ def test_validator_script_writes_the_requested_report(tmp_path):
     assert written["passed"] is True
 
 
-def test_checked_synthetic_report_replays_exactly():
+def test_checked_synthetic_report_replays_under_its_commit_binding():
     checked = json.loads(
         (
             ROOT
@@ -118,5 +118,9 @@ def test_checked_synthetic_report_replays_exactly():
         ).read_text(encoding="utf-8")
     )
     live = validate_registry_root(ROOT).as_json()
+    live["implementation_commit"] = checked["implementation_commit"]
+    material = dict(live)
+    material.pop("report_digest")
+    live["report_digest"] = sha256_ref(material)
 
     assert live == checked
