@@ -2,7 +2,7 @@
 
 Date: 2026-08-25
 
-Status: approved direction; implementation plan pending written review
+Status: approved; implementation plan written and authorized for execution
 
 ## 1. Goal
 
@@ -132,8 +132,10 @@ the root does not create a ledger genesis event.
 
 ## 7. ACL design
 
-The candidate root is created with protected ACL inheritance before any
-manifest or control record is published.
+The newly created `D:\AI_RESIDENCE\REGISTRY` parent and the candidate root are
+both created with protected ACL inheritance before any manifest or control
+record is published. Protecting only the child is insufficient because a broad
+parent `DeleteChild` grant could still remove or rename it.
 
 Required effective access:
 
@@ -166,8 +168,9 @@ The ACL receipt records:
 - check time reference;
 - `not_claimed: offsite_backup, private_confidentiality, multi_host_security`.
 
-ACL changes are limited to the newly created candidate/public registry tree.
-No ACL on `D:\AI_RESIDENCE` or `AI_HOME` is changed.
+ACL changes are limited to the newly created `REGISTRY` parent and its
+candidate/public registry tree. No ACL on `D:\AI_RESIDENCE` or `AI_HOME` is
+changed.
 
 ## 8. Candidate-first publication
 
@@ -176,8 +179,10 @@ Initialization never writes directly into a pre-existing final root.
 Sequence:
 
 1. Resolve the exact final path and confirm it is absent.
-2. Confirm the parent resides on the expected healthy NTFS volume.
-3. Create a sibling candidate named `.SEDB-RAL.init-{uuid4}`.
+2. Confirm `REGISTRY` is absent, create it, immediately apply its protected
+   ACL, and verify that broad parent write/delete-child grants are absent.
+3. Create a sibling candidate named `.SEDB-RAL.init-{uuid4}` inside the
+   protected `REGISTRY` parent.
 4. Apply and verify the protected ACL on the candidate.
 5. Create the exact layout, manifest, head-zero receipt, and initialization
    evidence inside the candidate.
@@ -399,7 +404,7 @@ digest before external writes begin.
 | P4-001 | Final root already exists | refuse; no merge/replace |
 | P4-002 | Exact root absent on expected NTFS volume | candidate may start |
 | P4-003 | Candidate inherits broad write ACL | fail before publication |
-| P4-004 | Protected reviewed ACL | required principals pass; broad writes absent |
+| P4-004 | Protected parent and candidate ACL | required principals pass; broad writes/delete-child absent |
 | P4-005 | Candidate contains reparse point/ADS/device/UNC escape | refuse |
 | P4-006 | Strict manifest and head-zero receipt | canonical digests valid |
 | P4-007 | Empty production publish | exact layout; zero residents/events |
