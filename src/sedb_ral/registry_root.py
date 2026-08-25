@@ -290,7 +290,10 @@ def _verify_bound_receipt(value: Mapping[str, object], field: str, code: str) ->
 
 
 def _verify_exact_tree(
-    root: Path, *, allow_recovery_material: bool = False
+    root: Path,
+    *,
+    allow_recovery_material: bool = False,
+    allow_extensions: bool = False,
 ) -> dict[str, object]:
     directories, files = _walk(root)
     _reject_alternate_streams(files)
@@ -312,11 +315,36 @@ def _verify_exact_tree(
         extra_files = relative_files - EXPECTED_FILES
         directories_valid = EXPECTED_DIRECTORIES <= relative_directories and all(
             name.startswith(("checkpoints/", "rehearsals/"))
+            or (
+                allow_extensions
+                and (name == "extensions" or name.startswith("extensions/"))
+            )
+            or name in {
+                "evidence/checkpoints",
+                "evidence/restores",
+                "evidence/rollbacks",
+            }
             for name in extra_directories
         )
         files_valid = EXPECTED_FILES <= relative_files and all(
             name.startswith(("checkpoints/", "rehearsals/"))
             or name in RECOVERY_EVIDENCE_FILES
+            or (allow_extensions and name.startswith("extensions/"))
+            or (
+                allow_extensions
+                and name.startswith("evidence/operations-extension-activation-")
+                and name.endswith(".json")
+            )
+            or (
+                name.startswith(
+                    (
+                        "evidence/checkpoints/checkpoint-",
+                        "evidence/restores/restore-",
+                        "evidence/rollbacks/rollback-",
+                    )
+                )
+                and name.endswith(".json")
+            )
             for name in extra_files
         )
     if not directories_valid or not files_valid:
@@ -748,7 +776,11 @@ def registry_root_status(
         raise RALValidationError(
             "registry_root_unavailable", "the final registry root is unavailable"
         )
-    facts = _verify_exact_tree(selected.final, allow_recovery_material=True)
+    facts = _verify_exact_tree(
+        selected.final,
+        allow_recovery_material=True,
+        allow_extensions=True,
+    )
     if (
         expected_plan_digest is not None
         and facts["plan_digest"] != expected_plan_digest
@@ -756,7 +788,7 @@ def registry_root_status(
         raise RALValidationError(
             "root_plan_digest_mismatch", "published root binds another plan"
         )
-    return {
+    status = {
         "schema": "sedb-ral.registry-root-status/0.1",
         "verified": True,
         "registry_id": facts["registry_id"],
@@ -772,3 +804,21 @@ def registry_root_status(
         "network_effect_count": 0,
         "external_effect_count": 0,
     }
+    if (selected.final / "extensions").exists():
+        from .production_operations_layout import (
+            verify_production_operations_extension,
+        )
+
+        extension_status = verify_production_operations_extension(selected.final)
+    else:
+        from .production_operations_layout import registry_generation_digest
+
+        extension_status = {
+            "extensions_status": "absent",
+            "activation_receipt_status": "absent",
+            "extension_index_digest": None,
+            "operations_generation": None,
+            "registry_generation_digest": registry_generation_digest(status, None),
+            "candidate_id": None,
+        }
+    return {**status, **extension_status}

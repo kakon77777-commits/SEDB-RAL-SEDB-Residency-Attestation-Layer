@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-operations-activation-receipt.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "candidate_id", "registry_id", "extension_index_digest", "registry_generation_digest", "observed_final_ref", "observed_time_ref", "not_claimed", "receipt_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-operations-activation-receipt/0.1"},
+    "candidate_id": {"type": "string", "format": "uuid"},
+    "registry_id": {"type": "string", "minLength": 1},
+    "extension_index_digest": {"type": "string", "minLength": 1},
+    "registry_generation_digest": {"type": "string", "minLength": 1},
+    "observed_final_ref": {"const": "extensions/registrar-operations/v1"},
+    "observed_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["ledger_append", "resident_registration", "private_access"]},
+    "receipt_digest": {"type": "string", "minLength": 1}
+  }
+}

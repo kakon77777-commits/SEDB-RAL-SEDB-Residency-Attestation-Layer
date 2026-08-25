@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-operations-acceptance.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "phase", "status", "source_commit", "candidate_version", "spec_sha256", "cases", "controls", "effects", "not_claimed", "report_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-operations-acceptance/0.1"},
+    "phase": {"const": "R3B-B"},
+    "status": {"enum": ["pass", "fail"]},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_version": {"const": "0.5.0b1"},
+    "spec_sha256": {"type": "string", "pattern": "^[0-9A-F]{64}$"},
+    "cases": {"type": "array", "minItems": 21},
+    "controls": {"type": "array", "minItems": 1},
+    "effects": {"type": "object"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "report_digest": {"type": "string", "minLength": 1}
+  }
+}

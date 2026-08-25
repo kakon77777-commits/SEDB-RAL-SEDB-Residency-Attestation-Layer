@@ -26,6 +26,18 @@ from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
 from .phase2 import validate_basic_phase2
 from .projection import project_events
+from .production_operations_contracts import (
+    default_dormant_policy,
+    plan_production_operations_extension,
+)
+from .production_operations_acceptance import (
+    validate_production_operations,
+    write_production_operations_report,
+)
+from .production_operations_layout import (
+    prepare_production_operations_candidate,
+    verify_production_operations_candidate,
+)
 from .registrar import (
     RegistrarAdmissionPlan,
     build_admission_plan,
@@ -211,6 +223,42 @@ def build_parser() -> argparse.ArgumentParser:
     _add_registry_recovery_common(registry_rollback)
     registry_rollback.add_argument("--checkpoint-root", required=True, type=Path)
     registry_rollback.add_argument("--rehearsal-id", required=True)
+    operations_plan = registry_commands.add_parser(
+        "operations-extension-plan",
+        help="bind an exact dormant production operations extension plan",
+    )
+    operations_plan.add_argument("--candidate-id", required=True)
+    operations_plan.add_argument("--source-commit", required=True)
+    operations_plan.add_argument("--source-package-version", required=True)
+    operations_plan.add_argument("--filesystem", required=True)
+    operations_plan.add_argument("--volume-identity", required=True)
+    operations_plan.add_argument("--expected-owner-sid", required=True)
+    operations_plan.add_argument("--acl-observation", required=True, type=Path)
+    operations_plan.add_argument("--pre-checkpoint", required=True, type=Path)
+    operations_plan.add_argument("--time-ref", required=True)
+    operations_plan.add_argument("--synthetic-storage-root", type=Path)
+    operations_plan.add_argument("--output", type=Path)
+    operations_prepare = registry_commands.add_parser(
+        "operations-extension-prepare",
+        help="prepare and verify a dormant extension candidate without publishing",
+    )
+    operations_prepare.add_argument("plan", type=Path)
+    operations_prepare.add_argument("authority", type=Path)
+    operations_prepare.add_argument("acl_observation", type=Path)
+    operations_prepare.add_argument("--synthetic-storage-root", type=Path)
+    operations_prepare.add_argument("--output", type=Path)
+    operations_status = registry_commands.add_parser(
+        "operations-extension-status",
+        help="read extension status without mutation",
+    )
+    operations_status.add_argument("--synthetic-storage-root", type=Path)
+    operations_status.add_argument("--output", type=Path)
+    operations_acceptance = registry_commands.add_parser(
+        "operations-extension-acceptance",
+        help="run the deterministic synthetic R3B-B acceptance gate",
+    )
+    operations_acceptance.add_argument("--repo-root", required=True, type=Path)
+    operations_acceptance.add_argument("--output", required=True, type=Path)
 
     registry_limen_view = registry_commands.add_parser(
         "limen-view", help="export the public LIMEN RAL view"
@@ -844,6 +892,120 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_rejection(code)
             return 1 if code.startswith("input_") else 2
         return 0
+    if args.command == "registry" and args.registry_command == "operations-extension-status":
+        try:
+            result = registry_root_status(storage=_registry_storage(args))
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "operations-extension-plan":
+        try:
+            acl = _object(
+                _read_json(args.acl_observation),
+                "registry_acl_observation_invalid",
+            )
+            checkpoint = _object(
+                _read_json(args.pre_checkpoint),
+                "versioned_checkpoint_invalid",
+            )
+            checkpoint_digest = checkpoint.get("checkpoint_digest")
+            if not isinstance(checkpoint_digest, str) or not checkpoint_digest:
+                raise RALValidationError(
+                    "versioned_checkpoint_digest_missing",
+                    "pre-activation checkpoint digest is required",
+                )
+            status = registry_root_status(storage=_registry_storage(args))
+            policy = default_dormant_policy()
+            result = plan_production_operations_extension(
+                registry_status=status,
+                candidate_id=args.candidate_id,
+                operations_generation=f"operations-generation:{args.candidate_id}",
+                policy_digest=str(policy["policy_digest"]),
+                source_commit=args.source_commit,
+                source_package_version=args.source_package_version,
+                filesystem=args.filesystem,
+                volume_identity=args.volume_identity,
+                expected_owner_sid=args.expected_owner_sid,
+                acl_fingerprint=str(acl["acl_fingerprint"]),
+                pre_checkpoint_digest=checkpoint_digest,
+                time_ref=args.time_ref,
+            )
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "operations-extension-prepare":
+        try:
+            plan = _object(
+                _read_json(args.plan), "production_operations_plan_invalid"
+            )
+            authority = _object(
+                _read_json(args.authority),
+                "production_operations_authority_invalid",
+            )
+            acl = _object(
+                _read_json(args.acl_observation),
+                "registry_acl_observation_invalid",
+            )
+            storage = _registry_storage(args)
+            prepared = prepare_production_operations_candidate(
+                plan,
+                authority,
+                acl,
+                default_dormant_policy(),
+                storage=storage,
+            )
+            result = verify_production_operations_candidate(
+                plan, prepared, storage=storage
+            )
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "operations-extension-acceptance":
+        try:
+            report = validate_production_operations(args.repo_root)
+            write_production_operations_report(report, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0 if report.passed else 2
     if args.command == "registry" and args.registry_command in {
         "checkpoint-root",
         "rehearse-restore",

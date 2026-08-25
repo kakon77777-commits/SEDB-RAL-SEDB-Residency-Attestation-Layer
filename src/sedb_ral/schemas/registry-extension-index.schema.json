@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-extension-index.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "index_sequence", "extension_kind", "extension_version", "extension_ref", "extension_manifest_digest", "activation_commit_digest", "operations_generation", "previous_index_digest", "source_commit", "source_package_version", "pre_checkpoint_digest", "recorded_time_ref", "not_claimed", "index_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-extension-index/0.1"},
+    "index_sequence": {"const": 0},
+    "extension_kind": {"const": "registrar-operations"},
+    "extension_version": {"const": "v1"},
+    "extension_ref": {"const": "extensions/registrar-operations/v1"},
+    "extension_manifest_digest": {"type": "string", "minLength": 1},
+    "activation_commit_digest": {"type": "string", "minLength": 1},
+    "operations_generation": {"type": "string", "minLength": 1},
+    "previous_index_digest": {"type": "null"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_package_version": {"const": "0.5.0b1"},
+    "pre_checkpoint_digest": {"type": "string", "minLength": 1},
+    "recorded_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["ledger_head", "resident_registration", "authority_grant"]},
+    "index_digest": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-operations-extension-authority.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "authority_id", "principal_ref", "operation", "target_root", "operation_plan_digest", "scopes", "status", "issued_time_ref", "expires_time_ref", "authorship_attestation_ref", "not_claimed", "authority_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-operations-extension-authority/0.1"},
+    "authority_id": {"type": "string", "minLength": 1},
+    "principal_ref": {"type": "string", "minLength": 1},
+    "operation": {"type": "string", "minLength": 1},
+    "target_root": {"type": "string", "minLength": 1},
+    "operation_plan_digest": {"type": "string", "minLength": 1},
+    "scopes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "status": {"enum": ["active", "revoked", "expired", "suspended"]},
+    "issued_time_ref": {"type": "string", "minLength": 1},
+    "expires_time_ref": {"type": "string", "minLength": 1},
+    "authorship_attestation_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["resident_approval", "ledger_append", "private_access", "rollback_authority"]},
+    "authority_digest": {"type": "string", "minLength": 1}
+  }
+}

@@ -45,8 +45,16 @@ production initializer is separately action-gated and accepts only
 ledger event. See
 [`docs/runtime/PRODUCTION_REGISTRY_ROOT.md`](docs/runtime/PRODUCTION_REGISTRY_ROOT.md).
 
-Phase 3B-A candidate `0.5.0a1` adds synthetic-only registrar operations. See
+Phase 3B-A candidate `0.5.0a1` adds synthetic-only registrar operations. Its
+accepted receipt remains version-pinned even though the package has advanced.
+See
 [`docs/runtime/PHASE3B_A_REGISTRAR_OPERATIONS.md`](docs/runtime/PHASE3B_A_REGISTRAR_OPERATIONS.md).
+
+Phase 3B-B candidate `0.5.0b1` adds a versioned, dormant production operations
+extension with atomic no-replace publication, versioned pre/post checkpoints,
+isolated recovery proofs, and R3B-001 through R3B-021 synthetic acceptance. It
+does not admit a resident or enable registrar execution. See
+[`docs/runtime/PHASE3B_B_PRODUCTION_OPERATIONS.md`](docs/runtime/PHASE3B_B_PRODUCTION_OPERATIONS.md).
 
 The empty production public root was accepted on 2026-08-25 from commit
 `a7d2bf6`: protected parent/final ACLs, head-zero, same-volume checkpoint,

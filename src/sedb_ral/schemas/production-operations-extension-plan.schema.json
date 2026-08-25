@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-operations-extension-plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "final_root", "extension_ref", "candidate_id", "candidate_name", "operations_generation", "registry_id", "registry_manifest_digest", "registry_control_digest", "base_tree_digest", "required_counts", "policy_digest", "source_commit", "source_package_version", "filesystem", "volume_identity", "expected_owner_sid", "acl_fingerprint", "pre_checkpoint_digest", "time_ref", "not_claimed", "plan_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-operations-extension-plan/0.1"},
+    "final_root": {"const": "D:\\AI_RESIDENCE\\REGISTRY\\SEDB-RAL"},
+    "extension_ref": {"const": "extensions/registrar-operations/v1"},
+    "candidate_id": {"type": "string", "format": "uuid"},
+    "candidate_name": {"type": "string", "pattern": "^\\.SEDB-RAL\\.operations-[0-9a-f-]{36}$"},
+    "operations_generation": {"type": "string", "minLength": 1},
+    "registry_id": {"type": "string", "minLength": 1},
+    "registry_manifest_digest": {"type": "string", "minLength": 1},
+    "registry_control_digest": {"type": "string", "minLength": 1},
+    "base_tree_digest": {"type": "string", "minLength": 1},
+    "required_counts": {"const": {"ledger_event_count": 0, "application_count": 0, "resident_count": 0, "address_count": 0}},
+    "policy_digest": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_package_version": {"const": "0.5.0b1"},
+    "filesystem": {"const": "NTFS"},
+    "volume_identity": {"type": "string", "minLength": 1},
+    "expected_owner_sid": {"type": "string", "pattern": "^S-[0-9]+(?:-[0-9]+)+$"},
+    "acl_fingerprint": {"type": "string", "minLength": 1},
+    "pre_checkpoint_digest": {"type": "string", "minLength": 1},
+    "time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["resident_registration", "ledger_append", "private_access", "network_send", "provider_call", "fabric_emit", "mcp_call"]},
+    "plan_digest": {"type": "string", "minLength": 1}
+  }
+}
