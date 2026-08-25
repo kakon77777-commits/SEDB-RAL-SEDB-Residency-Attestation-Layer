@@ -1,4 +1,4 @@
-name: Phase 3A synthetic registrar
+name: Phase 3A and LIMEN public export
 
 on:
   push:
@@ -20,12 +20,12 @@ jobs:
       PYTHONPATH: src
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 
@@ -49,9 +49,56 @@ jobs:
           --output phase3a-${{ runner.os }}.json
 
       - name: Upload acceptance evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: phase3a-${{ runner.os }}
           path: phase3a-${{ runner.os }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  limen-public-view:
+    name: LIMEN public view / ${{ matrix.os }} / Python 3.11
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONPATH: src
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python floor
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Run public-view tests
+        run: >-
+          python -m pytest -q
+          tests/test_limen_public_view_contract.py
+          tests/test_limen_public_view_export.py
+          tests/test_limen_public_view_cli.py
+          tests/test_limen_public_view_gate.py
+
+      - name: Generate public-view evidence
+        run: >-
+          python scripts/validate_limen_public_view.py
+          --output limen-public-view-${{ runner.os }}.json
+
+      - name: Upload public-view evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: limen-public-view-${{ runner.os }}
+          path: limen-public-view-${{ runner.os }}.json
           if-no-files-found: error
           retention-days: 14

@@ -9,7 +9,7 @@ attestations, authority, and delivery state without collapsing those concepts
 into one overloaded identity field.
 
 The project now contains the executable **Phase 3A synthetic/local registrar
-candidate** at version `0.3.0`. It retains the Basic Phase 2 compatibility
+and LIMEN public-view exporter candidate** at version `0.3.1`. It retains the Basic Phase 2 compatibility
 checkpoint, then adds applicant-self preparation, exact-digest authority,
 projection collision gates, isolated staging, exact-head commit, idempotent
 retry, and partial-prefix detection. It does not create a production registry,
@@ -39,6 +39,25 @@ byte-stable runs, zero real applicants, zero network calls, and zero private
 reads. See
 [`docs/runtime/PHASE3A_REGISTRAR_CORE.md`](docs/runtime/PHASE3A_REGISTRAR_CORE.md)
 for the exact CLI and boundary.
+
+## Validate the LIMEN public-view exporter
+
+The exporter reads only an exact-head SEDB-RAL ledger and produces a public
+`limen.ral-view/0.2` candidate:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest -q `
+  tests/test_limen_public_view_contract.py `
+  tests/test_limen_public_view_export.py `
+  tests/test_limen_public_view_cli.py `
+  tests/test_limen_public_view_gate.py
+python scripts/validate_limen_public_view.py --output limen-public-view-local.json
+```
+
+See
+[`docs/runtime/LIMEN_PUBLIC_VIEW_V02.md`](docs/runtime/LIMEN_PUBLIC_VIEW_V02.md)
+for the mapping, collision behavior, CLI, and non-claims.
 
 ## Validate Basic Phase 2 from a source checkout
 
@@ -77,15 +96,15 @@ network:
 
 ```powershell
 python -m build --wheel --no-isolation --outdir dist/clean
-$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.3.0-clean"
+$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.3.1-clean"
 python -m venv $cleanVenv
 & "$cleanVenv\Scripts\python.exe" -m pip install --no-deps `
   (Get-ChildItem dist\clean\*.whl | Select-Object -First 1).FullName
 & "$cleanVenv\Scripts\sedb-ral.exe" --version
 ```
 
-After activation, the equivalent command is `sedb-ral --version`; the Phase
-3A candidate reports `0.3.0`.
+After activation, the equivalent command is `sedb-ral --version`; the public
+view candidate reports `0.3.1`.
 
 The public contracts ship once under `src/sedb_ral/schemas/`. The repository
 gate requires positive, negative, and indeterminate identifier populations and
@@ -149,6 +168,7 @@ sedb-ral application explain PREPARED
 sedb-ral registrar plan PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
 sedb-ral registrar admit PLAN PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
 sedb-ral registrar status APPLICATION_DIGEST --ledger-root ROOT --expected-head DIGEST
+sedb-ral registry limen-view --ledger-root ROOT --expected-head DIGEST [--output VIEW]
 sedb-ral project rebuild EVENTS_JSON
 sedb-ral explain claim EVENTS_JSON CLAIM_ID
 sedb-ral diagnose delivery ADAPTER_OBSERVATION_JSON

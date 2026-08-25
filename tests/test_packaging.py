@@ -128,7 +128,7 @@ def test_phase2_repository_gate_is_not_claimed_as_self_contained_in_wheel(
     assert "VALIDATION_BASIC_PHASE2.json" not in members
 
 
-def test_clean_installed_wheel_cli_reports_phase3a_candidate_version(tmp_path):
+def test_clean_installed_wheel_cli_reports_public_view_candidate_version(tmp_path):
     wheel = build_clean_wheel(tmp_path)
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
@@ -174,7 +174,7 @@ def test_clean_installed_wheel_cli_reports_phase3a_candidate_version(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip() == "0.3.0"
+    assert result.stdout.strip() == "0.3.1"
 
 
 def test_validation_record_has_retrievable_registered_anchor():
