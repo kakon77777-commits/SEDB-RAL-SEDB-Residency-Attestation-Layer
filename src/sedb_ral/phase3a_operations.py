@@ -4,12 +4,12 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__
 from .canonical import canonical_bytes, sha256_ref
 from .no_send import scan_no_send
 from .operations.public_export import seam_source_manifest
 
 EXPECTED_CASE_IDS = tuple(f"R3A-{index:03d}" for index in range(1, 19))
+PHASE3B_A_CANDIDATE_VERSION = "0.5.0a1"
 CASE_NAMES = (
     "synthetic workspace initialization",
     "production private and Git target refusal",
@@ -51,7 +51,7 @@ class OperationsAcceptanceReport:
         return {
             "schema": "sedb-ral.phase3b-a-acceptance/0.1",
             "passed": self.passed,
-            "candidate_version": __version__,
+            "candidate_version": PHASE3B_A_CANDIDATE_VERSION,
             "source_commit": self.source_commit,
             "source_digest": self.source_digest,
             "case_ids": list(self.case_ids),
@@ -131,7 +131,7 @@ def _execute_once(root: Path) -> tuple[tuple[dict[str, object], ...], str, str]:
         "seam_raw_sha256": seam["raw_sha256"]
         == "32aefbb92345538b0320930e237f35791c0c43c5a1f7e40eace5d7248d803373",
         "foreign_schema_pins_empty": seam["foreign_schema_pins"] == [],
-        "candidate_version": __version__ == "0.5.0a1",
+        "candidate_version": PHASE3B_A_CANDIDATE_VERSION == "0.5.0a1",
     }
     passed = all(gates.values())
     cases = tuple(
