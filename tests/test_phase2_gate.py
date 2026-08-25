@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -7,21 +8,25 @@ from pathlib import Path
 import pytest
 
 import sedb_ral.phase2 as phase2_module
-from sedb_ral.no_send import scan_task5_no_send
 from scripts.validate_phase2 import main as script_main
 from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.cli import main as cli_main
 from sedb_ral.contracts import validate_contract
 from sedb_ral.errors import RALValidationError
+from sedb_ral.no_send import scan_task5_no_send
 from sedb_ral.phase2 import (
     finalize_basic_phase2,
     validate_basic_phase2,
     write_basic_phase2_receipt,
 )
 
-
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(r"C:\Users\kakon\Downloads\SEDB\SEDB-v0.4B-local.zip")
+ARCHIVE = Path(
+    os.environ.get(
+        "SEDB_V04B_ARCHIVE",
+        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
+    )
+)
 WRONG_HASH = json.loads(
     (ROOT / "fixtures/sedb/wrong-archive-hash.json").read_text(encoding="utf-8")
 )
@@ -106,9 +111,7 @@ def test_unknown_actual_field_is_unmapped_and_overall_passes(monkeypatch):
             records_match=False,
         )
 
-    monkeypatch.setattr(
-        phase2_module, "_run_task5_integration", run_with_unknown_field
-    )
+    monkeypatch.setattr(phase2_module, "_run_task5_integration", run_with_unknown_field)
 
     report = validate_basic_phase2(ROOT, ARCHIVE)
 
@@ -154,9 +157,7 @@ def test_mapped_actual_field_contradiction_fails_overall(monkeypatch):
     assert report.error_codes == ("sedb_mapping_contradiction",)
 
 
-def test_phase2_gate_rejects_injected_task5_network_call(
-    tmp_path, monkeypatch
-):
+def test_phase2_gate_rejects_injected_task5_network_call(tmp_path, monkeypatch):
     if not ARCHIVE.is_file():
         pytest.skip("archive_unavailable")
     injected_script = tmp_path / "validate_sedb_v04b.py"
@@ -344,9 +345,7 @@ def test_writer_rejects_coherently_reidentified_profile_tampering(
         tampered = replace(finalized, **{field: value})
     tampered = coherently_reidentify(tampered)
 
-    assert_write_rejected(
-        tampered, tmp_path, "sedb_profile_identity_mismatch"
-    )
+    assert_write_rejected(tampered, tmp_path, "sedb_profile_identity_mismatch")
 
 
 @pytest.mark.parametrize(
@@ -379,9 +378,7 @@ def test_writer_retains_existing_exact_profile_constants(
         tampered = replace(finalized, **{field: value})
     tampered = coherently_reidentify(tampered)
 
-    assert_write_rejected(
-        tampered, tmp_path, "sedb_profile_identity_mismatch"
-    )
+    assert_write_rejected(tampered, tmp_path, "sedb_profile_identity_mismatch")
 
 
 def test_all_five_phase2_fault_controls_are_executed_and_turn_red(phase2_report):
@@ -607,13 +604,9 @@ def test_writer_rejects_contradiction_even_when_report_says_passed(
     differential = copy.deepcopy(phase2_report.differential)
     differential["passed"] = True
     differential["counts"]["contradiction"] = 1
-    finalized = finalize_for_test(
-        replace(phase2_report, differential=differential)
-    )
+    finalized = finalize_for_test(replace(phase2_report, differential=differential))
 
-    assert_write_rejected(
-        finalized, tmp_path, "sedb_differential_invalid"
-    )
+    assert_write_rejected(finalized, tmp_path, "sedb_differential_invalid")
 
 
 def test_writer_accepts_nonexact_diagnostics_when_allowed_differences_agree(
@@ -684,9 +677,7 @@ def test_writer_rejects_failed_phase_report(
 def test_writer_rejects_failed_database_integrity(phase2_report, tmp_path):
     integration = copy.deepcopy(phase2_report.integration)
     integration["database_integrity"] = "corrupt"
-    finalized = finalize_for_test(
-        replace(phase2_report, integration=integration)
-    )
+    finalized = finalize_for_test(replace(phase2_report, integration=integration))
 
     assert_write_rejected(finalized, tmp_path, "sedb_integrity_failed")
 
@@ -714,38 +705,24 @@ def test_writer_rejects_report_that_does_not_pass(phase2_report, tmp_path):
     assert_write_rejected(finalized, tmp_path, "phase2_report_not_passed")
 
 
-def test_writer_requires_exact_three_differential_count_keys(
-    phase2_report, tmp_path
-):
+def test_writer_requires_exact_three_differential_count_keys(phase2_report, tmp_path):
     differential = copy.deepcopy(phase2_report.differential)
     differential["counts"]["future_class"] = 0
-    finalized = finalize_for_test(
-        replace(phase2_report, differential=differential)
-    )
+    finalized = finalize_for_test(replace(phase2_report, differential=differential))
 
-    assert_write_rejected(
-        finalized, tmp_path, "sedb_differential_invalid"
-    )
+    assert_write_rejected(finalized, tmp_path, "sedb_differential_invalid")
 
 
-def test_writer_rejects_differential_count_list_mismatch(
-    phase2_report, tmp_path
-):
+def test_writer_rejects_differential_count_list_mismatch(phase2_report, tmp_path):
     differential = copy.deepcopy(phase2_report.differential)
     differential["counts"]["expected_by_mapping"] += 1
-    finalized = finalize_for_test(
-        replace(phase2_report, differential=differential)
-    )
+    finalized = finalize_for_test(replace(phase2_report, differential=differential))
 
-    assert_write_rejected(
-        finalized, tmp_path, "sedb_differential_invalid"
-    )
+    assert_write_rejected(finalized, tmp_path, "sedb_differential_invalid")
 
 
 def test_writer_requires_exact_five_control_names(phase2_report, tmp_path):
-    control = replace(
-        phase2_report.executed_controls[0], name="unexpected_control"
-    )
+    control = replace(phase2_report.executed_controls[0], name="unexpected_control")
     finalized = finalize_for_test(
         replace(
             phase2_report,
@@ -760,9 +737,7 @@ def test_writer_rechecks_finalized_ctcl_top_level_ids(phase2_report, tmp_path):
     finalized = finalize_for_test(phase2_report)
     register_response = copy.deepcopy(finalized.ctcl_register_response)
     register_response["id"] = "ctcl:instant:changed-after-finalization"
-    corrupted = replace(
-        finalized, ctcl_register_response=register_response
-    )
+    corrupted = replace(finalized, ctcl_register_response=register_response)
 
     assert_write_rejected(corrupted, tmp_path, "ctcl_registration_mismatch")
 
@@ -770,19 +745,13 @@ def test_writer_rechecks_finalized_ctcl_top_level_ids(phase2_report, tmp_path):
 def test_writer_rechecks_compatibility_subject_id(phase2_report, tmp_path):
     finalized = replace(
         finalize_for_test(phase2_report),
-        compatibility_subject_id=(
-            "sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64
-        ),
+        compatibility_subject_id=("sha256:sedb-ral-json-nfc-codepoint-v1:" + "0" * 64),
     )
 
-    assert_write_rejected(
-        finalized, tmp_path, "compatibility_subject_id_mismatch"
-    )
+    assert_write_rejected(finalized, tmp_path, "compatibility_subject_id_mismatch")
 
 
-def test_writer_rejects_unverified_manifest_relationship(
-    phase2_report, tmp_path
-):
+def test_writer_rejects_unverified_manifest_relationship(phase2_report, tmp_path):
     manifest = copy.deepcopy(phase2_report.manifest)
     manifest["verified"] = False
     finalized = finalize_for_test(replace(phase2_report, manifest=manifest))
@@ -790,14 +759,10 @@ def test_writer_rejects_unverified_manifest_relationship(
     assert_write_rejected(finalized, tmp_path, "manifest_verification_failed")
 
 
-def test_writer_rejects_changed_inherited_sedb_test_evidence(
-    phase2_report, tmp_path
-):
+def test_writer_rejects_changed_inherited_sedb_test_evidence(phase2_report, tmp_path):
     sedb_tests = copy.deepcopy(phase2_report.sedb_tests)
     sedb_tests["own_execution"]["passed"] = 188
-    finalized = finalize_for_test(
-        replace(phase2_report, sedb_tests=sedb_tests)
-    )
+    finalized = finalize_for_test(replace(phase2_report, sedb_tests=sedb_tests))
 
     assert_write_rejected(finalized, tmp_path, "sedb_test_evidence_invalid")
 

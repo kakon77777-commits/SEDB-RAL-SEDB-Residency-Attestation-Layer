@@ -543,7 +543,7 @@ def _package_boundary(root: Path, run_root: Path) -> tuple[str, dict[str, object
         r"\b01[a-f0-9]{6}-[a-f0-9]{4}-[a-f0-9]{4}-"
         r"[a-f0-9]{4}-[a-f0-9]{12}\b"
     )
-    private_marker = "D:" + "\\AI_" + "RESIDENCE"
+    private_marker = "D:" + "\\AI_" + "RESIDENCE\\AI_HOME"
     secret_patterns = (
         re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
         re.compile(r"\bAKIA[A-Z0-9]{16}\b"),

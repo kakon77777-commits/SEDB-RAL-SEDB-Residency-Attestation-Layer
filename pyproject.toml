@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sedb-ral"
-version = "0.3.1"
+version = "0.4.0"
 description = "SEDB Residency Attestation Layer deterministic core"
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4.23,<5"]

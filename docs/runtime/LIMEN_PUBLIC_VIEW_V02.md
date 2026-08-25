@@ -1,6 +1,6 @@
 # LIMEN Public View v0.2
 
-SEDB-RAL `0.3.1` can derive a public-only `limen.ral-view/0.2` from an
+SEDB-RAL `0.4.0` can derive a public-only `limen.ral-view/0.2` from an
 exact-head verified synthetic registry ledger.
 
 ## Command

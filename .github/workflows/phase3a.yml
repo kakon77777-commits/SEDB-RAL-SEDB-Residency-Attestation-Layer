@@ -1,4 +1,4 @@
-name: Phase 3A and LIMEN public export
+name: Phase 3A, LIMEN public export, and P3-4 registry root
 
 on:
   push:
@@ -100,5 +100,56 @@ jobs:
         with:
           name: limen-public-view-${{ runner.os }}
           path: limen-public-view-${{ runner.os }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  production-registry-root:
+    name: P3-4 registry root / ${{ matrix.os }} / Python 3.11
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONPATH: src
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python floor
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Run P3-4 root lifecycle tests
+        run: >-
+          python -m pytest -q
+          tests/test_registry_root_contracts.py
+          tests/test_registry_root.py
+          tests/test_registry_root_cli.py
+          tests/test_registry_recovery.py
+          tests/test_registry_recovery_cli.py
+          tests/test_registry_acl_script_contract.py
+          tests/test_registry_acl_windows.py
+          tests/test_registry_root_acceptance.py
+
+      - name: Generate synthetic root evidence
+        run: >-
+          python scripts/validate_registry_root.py
+          --output registry-root-${{ runner.os }}.json
+
+      - name: Upload synthetic root evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: registry-root-${{ runner.os }}
+          path: registry-root-${{ runner.os }}.json
           if-no-files-found: error
           retention-days: 14

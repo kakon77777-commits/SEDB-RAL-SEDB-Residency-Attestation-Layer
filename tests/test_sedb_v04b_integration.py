@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -12,9 +13,13 @@ from sedb_ral.errors import RALValidationError
 from sedb_ral.projection import RegistryProjection
 from sedb_ral.sedb_mapping import project_to_sedb_records
 
-
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(r"C:\Users\kakon\Downloads\SEDB\SEDB-v0.4B-local.zip")
+ARCHIVE = Path(
+    os.environ.get(
+        "SEDB_V04B_ARCHIVE",
+        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
+    )
+)
 ADOPTION_PROFILE = json.loads(
     (ROOT / "profiles" / "sedb-v0.4b-adoption.json").read_text(encoding="utf-8")
 )
@@ -75,7 +80,9 @@ def _require_exact_archive() -> None:
 def test_real_sedb_v04b_round_trip_uses_only_temp_storage(tmp_path):
     _require_exact_archive()
     expected_records = project_to_sedb_records(PROJECTION, MAPPING)
-    loaded_before = {name for name in sys.modules if name == "sedb" or name.startswith("sedb.")}
+    loaded_before = {
+        name for name in sys.modules if name == "sedb" or name.startswith("sedb.")
+    }
 
     result = run_integration(
         ARCHIVE,
@@ -143,7 +150,9 @@ def test_real_integration_temp_tree_deletes_immediately_without_gc():
 def test_invalid_mapping_fails_before_temp_tree_or_sedb_runtime(tmp_path):
     invalid_mapping = copy.deepcopy(MAPPING)
     invalid_mapping["rules"][0]["sedb_target"] = "sedb_ral.wrong"
-    loaded_before = {name for name in sys.modules if name == "sedb" or name.startswith("sedb.")}
+    loaded_before = {
+        name for name in sys.modules if name == "sedb" or name.startswith("sedb.")
+    }
 
     with pytest.raises(RALValidationError, match="sedb_mapping_rule_invalid"):
         run_integration(

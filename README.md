@@ -8,13 +8,42 @@ instances, continuity lines, identifiers, addresses, claims, observations,
 attestations, authority, and delivery state without collapsing those concepts
 into one overloaded identity field.
 
-The project now contains the executable **Phase 3A synthetic/local registrar
-and LIMEN public-view exporter candidate** at version `0.3.1`. It retains the Basic Phase 2 compatibility
-checkpoint, then adds applicant-self preparation, exact-digest authority,
-projection collision gates, isolated staging, exact-head commit, idempotent
-retry, and partial-prefix detection. It does not create a production registry,
-register a real applicant, add network send/federation, implement Registrar
-MCP or LIMEN B6, access private Residence data, or mutate SEDB canonically.
+The project now contains the executable **Phase 3A synthetic/local registrar,
+LIMEN public-view exporter, and P3-4 public registry-root lifecycle candidate**
+at version `0.4.0`. It retains the Basic Phase 2 compatibility checkpoint, then
+adds applicant-self preparation, exact-digest authority, projection collision
+gates, isolated staging, exact-head commit, idempotent retry, candidate-first
+root publication, protected Windows ACLs, and isolated recovery rehearsals. It
+does not register a real applicant, add network send/federation, implement
+Registrar MCP or LIMEN B6B, access private Residence data, or mutate SEDB
+canonically.
+
+## Validate the P3-4 public registry-root lifecycle
+
+The synthetic gate maps the exact logical public root into temporary storage;
+it does not create or inspect the production Residence tree:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest -q `
+  tests/test_registry_root_contracts.py `
+  tests/test_registry_root.py `
+  tests/test_registry_root_cli.py `
+  tests/test_registry_recovery.py `
+  tests/test_registry_recovery_cli.py `
+  tests/test_registry_acl_script_contract.py `
+  tests/test_registry_acl_windows.py `
+  tests/test_registry_root_acceptance.py
+python scripts/validate_registry_root.py `
+  --output registry-root-synthetic.json
+```
+
+The gate requires P4-001 through P4-016, eight injected controls, deterministic
+repeat execution, and zero resident, private, network, or external effects. The
+production initializer is separately action-gated and accepts only
+`D:\AI_RESIDENCE\REGISTRY\SEDB-RAL`; it never reads `AI_HOME` or creates a
+ledger event. See
+[`docs/runtime/PRODUCTION_REGISTRY_ROOT.md`](docs/runtime/PRODUCTION_REGISTRY_ROOT.md).
 
 ## Validate Phase 3A from a source checkout
 
@@ -71,7 +100,7 @@ python -m pytest -q
 python scripts/validate_phase1a.py
 python scripts/validate_phase1bc.py
 python -m pytest tests/test_sedb_v04b_integration.py -q
-$sedbArchive = "C:\Users\kakon\Downloads\SEDB\SEDB-v0.4B-local.zip"
+$sedbArchive = "D:\Ai\work together\SEDB\releases\SEDB-v0.4B-local.zip"
 python scripts/validate_phase2.py --sedb-archive $sedbArchive
 sedb-ral phase1a verify .
 sedb-ral phase1bc verify .
@@ -96,7 +125,7 @@ network:
 
 ```powershell
 python -m build --wheel --no-isolation --outdir dist/clean
-$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.3.1-clean"
+$cleanVenv = Join-Path $env:TEMP "sedb-ral-0.4.0-clean"
 python -m venv $cleanVenv
 & "$cleanVenv\Scripts\python.exe" -m pip install --no-deps `
   (Get-ChildItem dist\clean\*.whl | Select-Object -First 1).FullName
@@ -104,7 +133,7 @@ python -m venv $cleanVenv
 ```
 
 After activation, the equivalent command is `sedb-ral --version`; the public
-view candidate reports `0.3.1`.
+view/root candidate reports `0.4.0`.
 
 The public contracts ship once under `src/sedb_ral/schemas/`. The repository
 gate requires positive, negative, and indeterminate identifier populations and
@@ -168,6 +197,14 @@ sedb-ral application explain PREPARED
 sedb-ral registrar plan PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
 sedb-ral registrar admit PLAN PREPARED DECISION AUTHORITY ... --expected-head GENESIS|DIGEST
 sedb-ral registrar status APPLICATION_DIGEST --ledger-root ROOT --expected-head DIGEST
+sedb-ral registry root-plan ... --expected-owner-sid SID
+sedb-ral registry prepare-root PLAN AUTHORITY PARENT_ACL CANDIDATE_ACL
+sedb-ral registry verify-root PLAN AUTHORITY PARENT_ACL CANDIDATE_ACL
+sedb-ral registry publish-root PLAN VERIFICATION
+sedb-ral registry root-status --expected-plan-digest DIGEST
+sedb-ral registry checkpoint-root --root ROOT --checkpoint-id UUID --authority AUTHORITY --time-ref REF
+sedb-ral registry rehearse-restore --root ROOT --checkpoint-root CHECKPOINT --rehearsal-id UUID --authority AUTHORITY --time-ref REF
+sedb-ral registry rehearse-rollback --root ROOT --checkpoint-root CHECKPOINT --rehearsal-id UUID --authority AUTHORITY --time-ref REF
 sedb-ral registry limen-view --ledger-root ROOT --expected-head DIGEST [--output VIEW]
 sedb-ral project rebuild EVENTS_JSON
 sedb-ral explain claim EVENTS_JSON CLAIM_ID
@@ -188,8 +225,9 @@ Exit codes are semantic:
 All JSON command output is strict canonical UTF-8 plus one terminal LF.
 Registrar mutation requires an exact staged plan and retained head. The literal
 `GENESIS` is the only CLI spelling for a new empty ledger; omission is an
-error. Phase 3A acceptance exercises these writes only in temporary synthetic
-roots.
+error. Phase 3A and P3-4 synthetic acceptance exercise writes only in temporary
+synthetic roots. Production-root mutation requires the separate Windows
+initializer, exact plan/authority/time artifacts, and the action-time gate.
 
 ## Canonical byte contract
 

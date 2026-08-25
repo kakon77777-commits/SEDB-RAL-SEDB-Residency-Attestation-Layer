@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import stat
 import tempfile
@@ -14,9 +15,13 @@ from sedb_ral.sedb_adoption import (
     inspect_sedb_archive,
 )
 
-
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(r"C:\Users\kakon\Downloads\SEDB\SEDB-v0.4B-local.zip")
+ARCHIVE = Path(
+    os.environ.get(
+        "SEDB_V04B_ARCHIVE",
+        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
+    )
+)
 PROFILE = json.loads(
     (ROOT / "profiles/sedb-v0.4b-adoption.json").read_text(encoding="utf-8")
 )
@@ -43,9 +48,7 @@ def archive_profile(archive: Path, **overrides: object) -> dict[str, object]:
 
 def package_members() -> dict[str, bytes]:
     return {
-        "pyproject.toml": (
-            b'[project]\nname = "sedb-local"\nversion = "0.4.0b1"\n'
-        ),
+        "pyproject.toml": (b'[project]\nname = "sedb-local"\nversion = "0.4.0b1"\n'),
         "SOURCE_COMMIT.txt": (
             b"source_commit: 139b9952bb283b2e95f7690d76e3c5fbcdc680aa\n"
         ),
@@ -87,9 +90,7 @@ def write_package_with_extra_info(archive: Path, info: zipfile.ZipInfo) -> None:
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for name, payload in members.items():
             bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
-        bundle.writestr(
-            f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
-        )
+        bundle.writestr(f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members))
         bundle.writestr(info, b"unsafe")
 
 
@@ -150,9 +151,7 @@ def test_wrong_hash_fails_before_extraction(tmp_path):
         r"C:\drive.py",
     ],
 )
-def test_unsafe_member_path_is_rejected_without_writing_outside(
-    tmp_path, unsafe_name
-):
+def test_unsafe_member_path_is_rejected_without_writing_outside(tmp_path, unsafe_name):
     archive = tmp_path / "unsafe.zip"
     outside_path = tmp_path / "escape.py"
     info = zipfile.ZipInfo(unsafe_name)
@@ -175,9 +174,7 @@ def test_duplicate_member_name_is_rejected(tmp_path):
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
             for name, payload in members.items():
                 bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
-            bundle.writestr(
-                f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
-            )
+            bundle.writestr(f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members))
             bundle.writestr(f"{PACKAGE_ROOT}/data/payload.txt", b"duplicate")
 
     result = inspect_sedb_archive(archive, archive_profile(archive))
@@ -245,9 +242,7 @@ def test_windows_equivalent_member_names_are_rejected(
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for name, payload in members.items():
             bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
-        bundle.writestr(
-            f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
-        )
+        bundle.writestr(f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members))
         bundle.writestr(f"{PACKAGE_ROOT}/{first_name}", b"first")
         second_info = zipfile.ZipInfo("placeholder")
         second_info.filename = f"{PACKAGE_ROOT}/{second_name}"
@@ -275,14 +270,10 @@ def test_nfkc_compatibility_separator_collides_before_staging(
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for name, payload in members.items():
             bundle.writestr(f"{PACKAGE_ROOT}/{name}", payload)
-        bundle.writestr(
-            f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members)
-        )
+        bundle.writestr(f"{PACKAGE_ROOT}/MANIFEST.sha256", manifest_bytes(members))
         bundle.writestr(f"{PACKAGE_ROOT}/data/a/b.txt", b"first")
         second_info = zipfile.ZipInfo("placeholder")
-        second_info.filename = (
-            f"{PACKAGE_ROOT}/data/a{compatibility_separator}b.txt"
-        )
+        second_info.filename = f"{PACKAGE_ROOT}/data/a{compatibility_separator}b.txt"
         bundle.writestr(second_info, b"second")
 
     def staging_must_not_be_created(*args, **kwargs):
@@ -510,9 +501,7 @@ def test_extraction_requires_a_new_target_and_preserves_existing_content(tmp_pat
     assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
-def test_copy_failure_never_deletes_a_swapped_staging_directory(
-    tmp_path, monkeypatch
-):
+def test_copy_failure_never_deletes_a_swapped_staging_directory(tmp_path, monkeypatch):
     archive = tmp_path / "package.zip"
     write_package(archive)
     target = tmp_path / "published"
@@ -523,11 +512,7 @@ def test_copy_failure_never_deletes_a_swapped_staging_directory(
     def swap_staging_then_fail(path, mode="r", *args, **kwargs):
         nonlocal swapped_root, replacement_sentinel
         candidate = Path(path)
-        if (
-            mode == "xb"
-            and swapped_root is None
-            and candidate.is_relative_to(tmp_path)
-        ):
+        if mode == "xb" and swapped_root is None and candidate.is_relative_to(tmp_path):
             staging = next(
                 parent for parent in candidate.parents if parent.parent == tmp_path
             )
@@ -606,9 +591,7 @@ def test_cleanup_swap_after_identity_check_is_abandoned(tmp_path, monkeypatch):
         moved = staging.with_name(f"{staging.name}.owned")
         staging.rename(moved)
         staging.mkdir()
-        (staging / "unrelated.txt").write_text(
-            "do not delete", encoding="utf-8"
-        )
+        (staging / "unrelated.txt").write_text("do not delete", encoding="utf-8")
         return original_rmtree(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", fail_first_member_copy)
@@ -623,9 +606,7 @@ def test_cleanup_swap_after_identity_check_is_abandoned(tmp_path, monkeypatch):
     assert not target.exists()
 
 
-def test_publish_uses_retained_directory_after_postcheck_swap(
-    tmp_path, monkeypatch
-):
+def test_publish_uses_retained_directory_after_postcheck_swap(tmp_path, monkeypatch):
     archive = tmp_path / "package.zip"
     members = write_package(archive)
     target = tmp_path / "published"
