@@ -37,6 +37,14 @@ from .registration import (
     prepare_registration,
 )
 from .registration_admission import RegistrationDecision
+from .registry_root import (
+    RegistryStorage,
+    prepare_registry_candidate,
+    publish_registry_candidate,
+    registry_root_status,
+    verify_registry_candidate,
+)
+from .registry_root_contracts import plan_registry_root
 from .sqlite_projection import rebuild_sqlite, table_row_counts
 
 
@@ -146,6 +154,41 @@ def build_parser() -> argparse.ArgumentParser:
         "registry", help="read exact-head public registry projections"
     )
     registry_commands = registry.add_subparsers(dest="registry_command")
+    registry_root_plan = registry_commands.add_parser(
+        "root-plan", help="bind an exact production registry initialization plan"
+    )
+    registry_root_plan.add_argument("--final-root", required=True)
+    registry_root_plan.add_argument("--candidate-id", required=True)
+    registry_root_plan.add_argument("--source-commit", required=True)
+    registry_root_plan.add_argument("--source-package-version", required=True)
+    registry_root_plan.add_argument("--time-ref", required=True)
+    registry_root_plan.add_argument("--filesystem", required=True)
+    registry_root_plan.add_argument("--volume-identity", required=True)
+    registry_root_plan.add_argument("--expected-owner-sid", required=True)
+    registry_root_plan.add_argument("--output", type=Path)
+
+    registry_prepare_root = registry_commands.add_parser(
+        "prepare-root", help="fill an ACL-protected empty registry candidate"
+    )
+    _add_registry_candidate_common(registry_prepare_root)
+    registry_verify_root = registry_commands.add_parser(
+        "verify-root", help="verify an exact empty registry candidate"
+    )
+    _add_registry_candidate_common(registry_verify_root)
+    registry_publish_root = registry_commands.add_parser(
+        "publish-root", help="publish a verified candidate by no-replace rename"
+    )
+    registry_publish_root.add_argument("plan", type=Path)
+    registry_publish_root.add_argument("verification", type=Path)
+    registry_publish_root.add_argument("--synthetic-storage-root", type=Path)
+    registry_publish_root.add_argument("--output", type=Path)
+    registry_root_status_parser = registry_commands.add_parser(
+        "root-status", help="verify the published empty production registry"
+    )
+    registry_root_status_parser.add_argument("--expected-plan-digest")
+    registry_root_status_parser.add_argument("--synthetic-storage-root", type=Path)
+    registry_root_status_parser.add_argument("--output", type=Path)
+
     registry_limen_view = registry_commands.add_parser(
         "limen-view", help="export the public LIMEN RAL view"
     )
@@ -210,6 +253,15 @@ def _add_registrar_common(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--ledger-root", required=True, type=Path)
     parser.add_argument("--expected-head", required=True)
+
+
+def _add_registry_candidate_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("plan", type=Path)
+    parser.add_argument("authority", type=Path)
+    parser.add_argument("parent_acl", type=Path)
+    parser.add_argument("candidate_acl", type=Path)
+    parser.add_argument("--synthetic-storage-root", type=Path)
+    parser.add_argument("--output", type=Path)
 
 
 def _print_json(value: object) -> None:
@@ -305,6 +357,24 @@ def _load_registrar_inputs(args):
     ctcl = _object(_read_json(args.ctcl_receipt), "ctcl_receipt_invalid")
     refs = _verified_refs(_read_json(args.verified_attestation_refs))
     return prepared, decision, authority, ctcl, refs
+
+
+def _registry_storage(args) -> RegistryStorage:
+    root = getattr(args, "synthetic_storage_root", None)
+    return (
+        RegistryStorage.synthetic(root)
+        if root is not None
+        else RegistryStorage.production()
+    )
+
+
+def _load_registry_candidate_inputs(args):
+    return (
+        _object(_read_json(args.plan), "registry_root_plan_invalid"),
+        _object(_read_json(args.authority), "registry_root_authority_invalid"),
+        _object(_read_json(args.parent_acl), "registry_parent_acl_invalid"),
+        _object(_read_json(args.candidate_acl), "registry_candidate_acl_invalid"),
+    )
 
 
 def _print_input_error(code: str) -> None:
@@ -623,6 +693,111 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "mutated": False,
                 }
             )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "root-plan":
+        try:
+            plan = plan_registry_root(
+                final_root=args.final_root,
+                candidate_id=args.candidate_id,
+                source_commit=args.source_commit,
+                source_package_version=args.source_package_version,
+                time_ref=args.time_ref,
+                filesystem=args.filesystem,
+                volume_identity=args.volume_identity,
+                expected_owner_sid=args.expected_owner_sid,
+            )
+            _emit_or_write(plan, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command in {
+        "prepare-root",
+        "verify-root",
+    }:
+        try:
+            plan, authority, parent_acl, candidate_acl = (
+                _load_registry_candidate_inputs(args)
+            )
+            storage = _registry_storage(args)
+            if args.registry_command == "prepare-root":
+                result = prepare_registry_candidate(
+                    plan,
+                    authority,
+                    parent_acl,
+                    candidate_acl,
+                    storage=storage,
+                )
+            else:
+                result = verify_registry_candidate(
+                    plan,
+                    authority,
+                    parent_acl,
+                    candidate_acl,
+                    storage=storage,
+                )
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "publish-root":
+        try:
+            plan = _object(_read_json(args.plan), "registry_root_plan_invalid")
+            verification = _object(
+                _read_json(args.verification),
+                "registry_candidate_verification_invalid",
+            )
+            result = publish_registry_candidate(
+                plan, verification, storage=_registry_storage(args)
+            )
+            _emit_or_write(result, args.output)
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "root-status":
+        try:
+            result = registry_root_status(
+                expected_plan_digest=args.expected_plan_digest,
+                storage=_registry_storage(args),
+            )
+            _emit_or_write(result, args.output)
         except (
             OSError,
             UnicodeError,

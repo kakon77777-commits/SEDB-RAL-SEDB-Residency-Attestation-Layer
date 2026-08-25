@@ -77,10 +77,14 @@ Expose:
 
 ```python
 plan_registry_root(*, final_root, candidate_id, source_commit,
-                   source_package_version, time_ref, volume_identity) -> dict
+                   source_package_version, time_ref, volume_identity,
+                   expected_owner_sid) -> dict
 verify_root_authority(*, authority, plan_digest, exact_root) -> None
 verify_registry_acl(*, observation, expected_root, expected_owner_sid) -> None
 ```
+
+The plan-bound owner SID prevents an ACL observation from self-selecting its
+trusted owner.
 
 ### Step 4: Run focused and schema tests
 

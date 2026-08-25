@@ -22,7 +22,6 @@ from sedb_ral.registry_root_contracts import (
     verify_root_authority,
 )
 
-
 FINAL_ROOT = r"D:\AI_RESIDENCE\REGISTRY\SEDB-RAL"
 PARENT_ROOT = r"D:\AI_RESIDENCE\REGISTRY"
 CANDIDATE_ID = "6f5121df-a649-49f3-a3f8-f1ef7df6f3af"
@@ -39,6 +38,7 @@ def valid_plan() -> dict[str, object]:
         time_ref=TIME_REF,
         filesystem="NTFS",
         volume_identity="volume:test-d",
+        expected_owner_sid=OWNER_SID,
     )
 
 
@@ -99,9 +99,8 @@ def test_root_plan_is_deterministic_and_binds_exact_candidate():
     assert first["final_root"] == FINAL_ROOT
     assert first["registry_parent"] == PARENT_ROOT
     assert first["candidate_name"] == f".SEDB-RAL.init-{CANDIDATE_ID}"
-    assert first["candidate_root"] == (
-        PARENT_ROOT + rf"\.SEDB-RAL.init-{CANDIDATE_ID}"
-    )
+    assert first["candidate_root"] == (PARENT_ROOT + rf"\.SEDB-RAL.init-{CANDIDATE_ID}")
+    assert first["expected_owner_sid"] == OWNER_SID
     UUID(CANDIDATE_ID)
     material = dict(first)
     digest = material.pop("plan_digest")
@@ -116,6 +115,7 @@ def test_root_plan_is_deterministic_and_binds_exact_candidate():
         ({"final_root": r"\\host\share\SEDB-RAL"}, "root_target_mismatch"),
         ({"candidate_id": "not-a-uuid"}, "candidate_id_invalid"),
         ({"filesystem": "ReFS"}, "filesystem_mismatch"),
+        ({"expected_owner_sid": "not-a-sid"}, "owner_sid_invalid"),
     ],
 )
 def test_root_plan_rejects_target_or_volume_drift(override, code):
@@ -127,6 +127,7 @@ def test_root_plan_rejects_target_or_volume_drift(override, code):
         "time_ref": TIME_REF,
         "filesystem": "NTFS",
         "volume_identity": "volume:test-d",
+        "expected_owner_sid": OWNER_SID,
     }
     arguments.update(override)
 
@@ -211,7 +212,10 @@ def test_parent_and_candidate_acl_require_protected_reviewed_sids():
     [
         ({"inheritance_protected": False}, "registry_acl_inheritance_enabled"),
         ({"reparse_point": True}, "registry_root_reparse_point"),
-        ({"required_full_control_sids": [OWNER_SID]}, "registry_acl_required_access_missing"),
+        (
+            {"required_full_control_sids": [OWNER_SID]},
+            "registry_acl_required_access_missing",
+        ),
         ({"forbidden_write_sids": ["S-1-5-11"]}, "registry_acl_broad_write"),
         ({"filesystem": "ReFS"}, "filesystem_mismatch"),
     ],
@@ -246,9 +250,7 @@ SCHEMA_NAMES = (
 @pytest.mark.parametrize("name", SCHEMA_NAMES)
 def test_registry_root_schema_assets_are_strict(name):
     schema = load_schema(name)
-    assert schema["$id"].startswith(
-        "https://evemisslab.com/schemas/sedb-ral/"
-    )
+    assert schema["$id"].startswith("https://evemisslab.com/schemas/sedb-ral/")
     assert schema["additionalProperties"] is False
 
 

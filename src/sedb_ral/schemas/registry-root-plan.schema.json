@@ -8,7 +8,7 @@
     "schema", "operation", "final_root", "registry_parent", "candidate_id",
     "candidate_name", "candidate_root", "source_package_name",
     "source_package_version", "source_commit", "canonicalization_version",
-    "chain_version", "filesystem", "volume_identity", "time_ref",
+    "chain_version", "filesystem", "volume_identity", "expected_owner_sid", "time_ref",
     "not_claimed", "plan_digest"
   ],
   "properties": {
@@ -26,6 +26,7 @@
     "chain_version": {"const": "sedb-ral-ledger-chain-v1"},
     "filesystem": {"const": "NTFS"},
     "volume_identity": {"type": "string", "minLength": 1},
+    "expected_owner_sid": {"type": "string", "pattern": "^S-[0-9]+(?:-[0-9]+)+$"},
     "time_ref": {"type": "string", "minLength": 1},
     "not_claimed": {"const": ["resident_registration", "private_access", "root_replacement", "root_deletion", "offsite_backup"]},
     "plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}

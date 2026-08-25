@@ -21,9 +21,7 @@ APPROVED_ROOT_SCOPES = (
 )
 SYSTEM_SID = "S-1-5-18"
 ADMINISTRATORS_SID = "S-1-5-32-544"
-FORBIDDEN_BROAD_SIDS = frozenset(
-    {"S-1-5-11", "S-1-5-32-545", "S-1-1-0"}
-)
+FORBIDDEN_BROAD_SIDS = frozenset({"S-1-5-11", "S-1-5-32-545", "S-1-1-0"})
 
 _PLAN_NOT_CLAIMED = (
     "resident_registration",
@@ -33,6 +31,7 @@ _PLAN_NOT_CLAIMED = (
     "offsite_backup",
 )
 _HEX_COMMIT = re.compile(r"[0-9a-f]{40}")
+_SID = re.compile(r"S-[0-9]+(?:-[0-9]+)+")
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -51,9 +50,7 @@ def bind_document_digest(
             "digest material must exclude its digest field",
         )
     material = _canonical_object(value)
-    return _canonical_object(
-        {**material, digest_field: sha256_ref(material)}
-    )
+    return _canonical_object({**material, digest_field: sha256_ref(material)})
 
 
 def _verify_document_digest(
@@ -100,9 +97,7 @@ class RegistryRootPlan(_CanonicalContract):
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> RegistryRootPlan:
         canonical = _canonical_object(value)
-        _verify_document_digest(
-            canonical, "plan_digest", "root_plan_digest_mismatch"
-        )
+        _verify_document_digest(canonical, "plan_digest", "root_plan_digest_mismatch")
         validate_contract("registry-root-plan.schema.json", canonical)
         _require_exact_root(
             canonical["final_root"], PRODUCTION_REGISTRY_ROOT, "root_target_mismatch"
@@ -155,9 +150,7 @@ class RegistryAclObservation(_CanonicalContract):
 @dataclass(frozen=True)
 class ProductionRegistryManifest(_CanonicalContract):
     @classmethod
-    def from_dict(
-        cls, value: Mapping[str, object]
-    ) -> ProductionRegistryManifest:
+    def from_dict(cls, value: Mapping[str, object]) -> ProductionRegistryManifest:
         canonical = _canonical_object(value)
         _verify_document_digest(
             canonical, "manifest_digest", "registry_manifest_digest_mismatch"
@@ -171,9 +164,7 @@ class RegistryHeadReceipt(_CanonicalContract):
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> RegistryHeadReceipt:
         canonical = _canonical_object(value)
-        _verify_document_digest(
-            canonical, "control_digest", "control_digest_mismatch"
-        )
+        _verify_document_digest(canonical, "control_digest", "control_digest_mismatch")
         validate_contract("registry-head-receipt.schema.json", canonical)
         return cls(canonical_bytes(canonical))
 
@@ -187,6 +178,7 @@ def plan_registry_root(
     time_ref: str,
     filesystem: str,
     volume_identity: str,
+    expected_owner_sid: str,
 ) -> dict[str, object]:
     exact_root = _require_exact_root(
         final_root, PRODUCTION_REGISTRY_ROOT, "root_target_mismatch"
@@ -206,6 +198,12 @@ def plan_registry_root(
     if not _HEX_COMMIT.fullmatch(source_commit):
         raise RALValidationError(
             "source_commit_invalid", "source commit must be a lowercase SHA-1"
+        )
+    if not isinstance(expected_owner_sid, str) or not _SID.fullmatch(
+        expected_owner_sid
+    ):
+        raise RALValidationError(
+            "owner_sid_invalid", "registry owner must be a canonical SID"
         )
     if not source_package_version or not time_ref or not volume_identity:
         raise RALValidationError(
@@ -227,6 +225,7 @@ def plan_registry_root(
         "chain_version": "sedb-ral-ledger-chain-v1",
         "filesystem": "NTFS",
         "volume_identity": volume_identity,
+        "expected_owner_sid": expected_owner_sid,
         "time_ref": time_ref,
         "not_claimed": list(_PLAN_NOT_CLAIMED),
     }
@@ -273,9 +272,7 @@ def verify_registry_acl(
             "registry_acl_target_mismatch", "ACL observation binds another root"
         )
     if parsed["owner_sid"] != expected_owner_sid:
-        raise RALValidationError(
-            "registry_acl_owner_mismatch", "ACL owner differs"
-        )
+        raise RALValidationError("registry_acl_owner_mismatch", "ACL owner differs")
     if parsed["filesystem"].upper() != "NTFS":
         raise RALValidationError("filesystem_mismatch", "NTFS is required")
     if not parsed["inheritance_protected"]:

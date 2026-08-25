@@ -397,6 +397,10 @@ The implementation plan must define a host-authenticated authority artifact or
 equivalent action-time confirmation bound to the exact root/candidate plan
 digest before external writes begin.
 
+The plan digest also binds the expected registry owner SID. ACL observations
+cannot choose their own trusted owner; both parent and candidate must match the
+SID fixed before candidate bytes are written.
+
 ## 16. Acceptance matrix
 
 | ID | Case | Expected |
