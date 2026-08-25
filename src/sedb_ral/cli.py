@@ -20,9 +20,11 @@ from .errors import RALValidationError
 from .explain import explain_claim
 from .identifier import evaluate_identifier_fixture
 from .ledger import LedgerStatus, read_verified_events, verify_ledger
+from .limen_public_view import build_limen_public_view
 from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
 from .phase2 import validate_basic_phase2
+from .projection import project_events
 from .registrar import (
     RegistrarAdmissionPlan,
     build_admission_plan,
@@ -139,6 +141,19 @@ def build_parser() -> argparse.ArgumentParser:
     registrar_status.add_argument("application_digest")
     registrar_status.add_argument("--ledger-root", required=True, type=Path)
     registrar_status.add_argument("--expected-head", required=True)
+
+    registry = commands.add_parser(
+        "registry", help="read exact-head public registry projections"
+    )
+    registry_commands = registry.add_subparsers(dest="registry_command")
+    registry_limen_view = registry_commands.add_parser(
+        "limen-view", help="export the public LIMEN RAL view"
+    )
+    registry_limen_view.add_argument(
+        "--ledger-root", required=True, type=Path
+    )
+    registry_limen_view.add_argument("--expected-head", required=True)
+    registry_limen_view.add_argument("--output", type=Path)
 
     project = commands.add_parser("project", help="rebuild a temporary projection")
     project_commands = project.add_subparsers(dest="project_command")
@@ -608,6 +623,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "mutated": False,
                 }
             )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RALValidationError,
+            KeyError,
+            TypeError,
+        ) as error:
+            code = _error_code(error)
+            _print_rejection(code)
+            return 1 if code.startswith("input_") else 2
+        return 0
+    if args.command == "registry" and args.registry_command == "limen-view":
+        try:
+            events = read_verified_events(
+                args.ledger_root, args.expected_head
+            )
+            if not events:
+                raise RALValidationError(
+                    "external_anchor_mismatch",
+                    "public view requires a non-empty exact-head ledger",
+                )
+            view = build_limen_public_view(
+                project_events(events),
+                ledger_head=args.expected_head,
+                sequence=int(events[-1]["ledger_seq"]),
+            )
+            _emit_or_write(view.to_dict(), args.output)
         except (
             OSError,
             UnicodeError,
