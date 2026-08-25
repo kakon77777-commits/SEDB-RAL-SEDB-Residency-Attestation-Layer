@@ -163,6 +163,9 @@ def test_windows_wrapper_publishes_only_dormant_synthetic_extension(
     )
 
     assert result.returncode == 0, result.stderr
+    final_acl = json.loads((action / "final-extensions-acl.json").read_text(encoding="utf-8"))
+    assert final_acl["inheritance_protected"] is True
+    assert final_acl["forbidden_write_sids"] == []
     final = registry_root_status(storage=published_storage)
     assert final["extensions_status"] == "active_dormant"
     assert final["ledger_event_count"] == 0
