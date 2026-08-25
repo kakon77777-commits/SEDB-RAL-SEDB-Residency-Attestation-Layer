@@ -230,3 +230,24 @@ def valid_manifest(**overrides: object) -> dict[str, object]:
     }
     material.update(overrides)
     return bind_document_digest(material, "manifest_digest")
+
+
+def synthetic_registry_status(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "schema": "sedb-ral.registry-root-status/0.1",
+        "verified": True,
+        "registry_id": REGISTRY_ID,
+        "manifest_digest": digest("b"),
+        "control_digest": digest("c"),
+        "plan_digest": digest("e"),
+        "tree_digest": digest("d"),
+        "ledger_event_count": 0,
+        "application_count": 0,
+        "resident_count": 0,
+        "address_count": 0,
+        "private_read_count": 0,
+        "network_effect_count": 0,
+        "external_effect_count": 0,
+    }
+    value.update(overrides)
+    return value
