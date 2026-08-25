@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from .application import (
-    ApplicationDecision,
+    application_digest,
     authority_digest,
     commit_application,
 )
@@ -162,14 +162,8 @@ def _copy_verified_ledger(source: Path, destination: Path) -> None:
 
 def _application_decision(
     decision: RegistrationDecision,
-) -> ApplicationDecision:
-    return ApplicationDecision(
-        decision=decision.decision,
-        reason_codes=decision.reason_codes,
-        application_digest=decision.application_digest,
-        authority_ref=decision.authority_ref,
-        mutated=decision.mutated,
-    )
+) -> RegistrationDecision:
+    return decision
 
 
 def _validate_decision(
@@ -418,6 +412,394 @@ def _check_plan_inputs(
         )
 
 
+def _events_by_type(
+    events: tuple[Mapping[str, object], ...], event_type: str
+) -> tuple[Mapping[str, object], ...]:
+    return tuple(
+        event for event in events if event.get("event_type") == event_type
+    )
+
+
+def _matching_grants(
+    events: tuple[Mapping[str, object], ...], target_digest: str
+) -> tuple[Mapping[str, object], ...]:
+    matches = []
+    for event in _events_by_type(events, "authority.granted"):
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        authority = payload.get("authority")
+        if (
+            isinstance(authority, Mapping)
+            and authority.get("subject_kind") == "application_digest"
+            and authority.get("subject_ref") == target_digest
+        ):
+            matches.append(event)
+    return tuple(matches)
+
+
+def _address_id_conflicts(
+    events: tuple[Mapping[str, object], ...],
+) -> bool:
+    addresses: dict[str, object] = {}
+    for event in _events_by_type(events, "resident.registered"):
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        values = payload.get("addresses")
+        if not isinstance(values, list):
+            continue
+        for address in values:
+            if not isinstance(address, Mapping):
+                continue
+            address_id = address.get("address_id")
+            if not isinstance(address_id, str):
+                continue
+            canonical = sha256_ref(dict(address))
+            previous = addresses.setdefault(address_id, canonical)
+            if previous != canonical:
+                return True
+    return False
+
+
+def _decision_prepared_digest(submitted: Mapping[str, object]) -> str:
+    payload = submitted["payload"]
+    decision = payload.get("decision")
+    if not isinstance(decision, Mapping):
+        return "unavailable:not-recorded"
+    prepared_digest = decision.get("prepared_digest")
+    if not isinstance(prepared_digest, str) or not prepared_digest:
+        return "unavailable:not-recorded"
+    decision_digest = decision.get("digest")
+    if isinstance(decision_digest, str):
+        material = dict(decision)
+        material.pop("digest")
+        if sha256_ref(material) != decision_digest:
+            raise RALValidationError(
+                "registrar_registration_conflict",
+                "recorded Phase 3 decision digest differs",
+            )
+    return prepared_digest
+
+
+def _registration_evidence(
+    values: tuple[Mapping[str, object], ...], target_digest: str
+) -> tuple[str, dict[str, object] | None]:
+    events = tuple(sorted(values, key=lambda item: item["ledger_seq"]))
+    grants = _matching_grants(events, target_digest)
+    submissions = tuple(
+        event
+        for event in _events_by_type(events, "application.submitted")
+        if isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("application_digest") == target_digest
+    )
+    acceptances = tuple(
+        event
+        for event in _events_by_type(events, "application.accepted")
+        if isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("application_digest") == target_digest
+    )
+    if not submissions:
+        if acceptances:
+            return "conflicting", None
+        return ("partial", None) if grants else ("absent", None)
+    if len(submissions) != 1 or len(acceptances) > 1:
+        return "conflicting", None
+
+    submitted = submissions[0]
+    submitted_payload = submitted["payload"]
+    application = submitted_payload.get("application")
+    if not isinstance(application, Mapping):
+        return "conflicting", None
+    try:
+        if application_digest(application) != target_digest:
+            return "conflicting", None
+    except (KeyError, TypeError, RALValidationError):
+        return "conflicting", None
+    application_id = application.get("application_id")
+    resident_id = application.get("claimed_resident_id")
+    if not isinstance(application_id, str) or not isinstance(resident_id, str):
+        return "conflicting", None
+
+    for event in _events_by_type(events, "application.submitted"):
+        payload = event.get("payload")
+        other = payload.get("application") if isinstance(payload, Mapping) else None
+        if (
+            isinstance(other, Mapping)
+            and other.get("application_id") == application_id
+            and payload.get("application_digest") != target_digest
+        ):
+            return "conflicting", None
+
+    registered = tuple(
+        event
+        for event in _events_by_type(events, "resident.registered")
+        if isinstance(event.get("payload"), Mapping)
+        and isinstance(event["payload"].get("resident"), Mapping)
+        and (
+            event["payload"]["resident"].get("application_ref")
+            == application_id
+            or event["payload"]["resident"].get("resident_id")
+            == resident_id
+        )
+    )
+    if len(registered) > 1 or _address_id_conflicts(events):
+        return "conflicting", None
+    if not acceptances:
+        return ("conflicting", None) if registered else ("partial", None)
+    accepted = acceptances[0]
+    accepted_payload = accepted["payload"]
+    if accepted_payload.get("application_id") != application_id:
+        return "conflicting", None
+    same_id_acceptances = tuple(
+        event
+        for event in _events_by_type(events, "application.accepted")
+        if isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("application_id") == application_id
+    )
+    if any(
+        event["payload"].get("application_digest") != target_digest
+        for event in same_id_acceptances
+    ):
+        return "conflicting", None
+    if not registered:
+        return "partial", None
+    registered_event = registered[0]
+    registered_payload = registered_event["payload"]
+    resident = registered_payload["resident"]
+    if (
+        resident.get("application_ref") != application_id
+        or resident.get("resident_id") != resident_id
+        or resident.get("display_label") != application.get("display_label")
+        or registered_payload.get("instances")
+        != application.get("instance_claims")
+        or registered_payload.get("addresses") != application.get("addresses")
+        or registered_payload.get("claims") != application.get("claims")
+    ):
+        return "conflicting", None
+    if not (
+        submitted["ledger_seq"]
+        < accepted["ledger_seq"]
+        < registered_event["ledger_seq"]
+    ):
+        return "conflicting", None
+
+    grant_event_id = accepted_payload.get("authority_grant_event_id")
+    grant = next(
+        (event for event in events if event.get("event_id") == grant_event_id),
+        None,
+    )
+    if grant is None or grant.get("event_type") != "authority.granted":
+        return "conflicting", None
+    grant_payload = grant.get("payload")
+    authority = (
+        grant_payload.get("authority")
+        if isinstance(grant_payload, Mapping)
+        else None
+    )
+    if not isinstance(authority, Mapping):
+        return "conflicting", None
+    try:
+        grant_digest = authority_digest(authority)
+    except (TypeError, RALValidationError):
+        return "conflicting", None
+    if (
+        grant["ledger_seq"] >= accepted["ledger_seq"]
+        or authority.get("subject_kind") != "application_digest"
+        or authority.get("subject_ref") != target_digest
+        or authority.get("status") != "active"
+        or grant_payload.get("authority_digest") != grant_digest
+        or accepted_payload.get("authority_id")
+        != authority.get("authority_id")
+        or accepted_payload.get("authority_digest") != grant_digest
+    ):
+        return "conflicting", None
+    for event in _events_by_type(events, "authority.revoked"):
+        payload = event.get("payload")
+        if (
+            isinstance(payload, Mapping)
+            and payload.get("authority_grant_event_id") == grant_event_id
+            and event["ledger_seq"] < registered_event["ledger_seq"]
+        ):
+            return "conflicting", None
+
+    projection = project_events(events)
+    target_event_ids = {
+        submitted["event_id"],
+        accepted["event_id"],
+        registered_event["event_id"],
+    }
+    if target_event_ids.intersection(projection.unapplied_event_ids):
+        return "conflicting", None
+    projected = projection.residents.get(resident_id)
+    if (
+        projected is None
+        or projected.get("application_ref") != application_id
+        or projection.applications.get(application_id, {}).get("status")
+        != "accepted"
+    ):
+        return "conflicting", None
+
+    include_grant = (
+        grant["ledger_seq"] + 1 == submitted["ledger_seq"]
+        and submitted.get("causal_parent_ids") == [grant["event_id"]]
+    )
+    related = (
+        (grant, submitted, accepted, registered_event)
+        if include_grant
+        else (submitted, accepted, registered_event)
+    )
+    first_integrity = related[0].get("integrity")
+    final_integrity = registered_event.get("integrity")
+    if not isinstance(first_integrity, Mapping) or not isinstance(
+        final_integrity, Mapping
+    ):
+        return "conflicting", None
+    source_head = first_integrity.get("previous_chain_digest")
+    final_head = final_integrity.get("chain_digest")
+    if source_head is not None and not isinstance(source_head, str):
+        return "conflicting", None
+    if not isinstance(final_head, str):
+        return "conflicting", None
+    try:
+        prepared_digest = _decision_prepared_digest(submitted)
+    except RALValidationError:
+        return "conflicting", None
+    return "complete", {
+        "application_digest": target_digest,
+        "prepared_digest": prepared_digest,
+        "source_head": source_head,
+        "final_head": final_head,
+        "event_ids": tuple(str(event["event_id"]) for event in related),
+        "projection_digest": projection_digest(projection),
+    }
+
+
+def inspect_registration_prefix(
+    events: tuple[Mapping[str, object], ...]
+    | list[Mapping[str, object]],
+    application_digest: str,
+) -> str:
+    try:
+        status, _ = _registration_evidence(
+            tuple(events), application_digest
+        )
+    except (KeyError, TypeError, RALValidationError):
+        return "conflicting"
+    return status
+
+
+def find_committed_registration(
+    events: tuple[Mapping[str, object], ...]
+    | list[Mapping[str, object]],
+    application_digest: str,
+) -> RegistrarCommitReceipt | None:
+    try:
+        status, evidence = _registration_evidence(
+            tuple(events), application_digest
+        )
+    except (KeyError, TypeError, RALValidationError):
+        return None
+    if status != "complete" or evidence is None:
+        return None
+    return RegistrarCommitReceipt(
+        application_digest=str(evidence["application_digest"]),
+        prepared_digest=str(evidence["prepared_digest"]),
+        source_head=evidence["source_head"],
+        final_head=str(evidence["final_head"]),
+        event_ids=evidence["event_ids"],
+        projection_digest=str(evidence["projection_digest"]),
+        committed=False,
+        idempotent=True,
+    )
+
+
+def _inspect_current_outcome(
+    canonical_root: Path,
+    plan: RegistrarAdmissionPlan,
+    prepared: PreparedRegistration,
+) -> RegistrarCommitReceipt | None:
+    exact = verify_ledger(
+        canonical_root,
+        expected_final_chain_digest=plan.candidate_head,
+    )
+    if exact.valid:
+        events = read_verified_events(canonical_root, plan.candidate_head)
+        status = inspect_registration_prefix(
+            events, prepared.application_digest
+        )
+        if status == "complete":
+            found = find_committed_registration(
+                events, prepared.application_digest
+            )
+            candidate_tail = tuple(
+                event["event_id"] for event in events[-len(plan.candidate_event_ids) :]
+            )
+            projection = project_events(events)
+            if (
+                found is None
+                or found.prepared_digest != plan.prepared_digest
+                or candidate_tail != plan.candidate_event_ids
+                or projection_digest(projection) != plan.projection_digest
+            ):
+                raise RALValidationError(
+                    "registrar_registration_conflict",
+                    "existing complete registration differs from the plan",
+                )
+            return RegistrarCommitReceipt(
+                application_digest=plan.application_digest,
+                prepared_digest=plan.prepared_digest,
+                source_head=plan.source_head,
+                final_head=plan.candidate_head,
+                event_ids=plan.candidate_event_ids,
+                projection_digest=plan.projection_digest,
+                committed=False,
+                idempotent=True,
+            )
+        code = (
+            "registrar_partial_transaction"
+            if status == "partial"
+            else "registrar_registration_conflict"
+        )
+        raise RALValidationError(code, "candidate head has invalid outcome")
+
+    current = verify_ledger(canonical_root)
+    if current.status is LedgerStatus.EMPTY:
+        return None
+    if current.status is LedgerStatus.INVALID:
+        non_anchor_errors = tuple(
+            code
+            for code in current.error_codes
+            if code != "external_anchor_mismatch"
+        )
+        if non_anchor_errors:
+            raise RALValidationError(
+                non_anchor_errors[0], "current registrar ledger is invalid"
+            )
+    if current.final_chain_digest is None:
+        return None
+    events = read_verified_events(
+        canonical_root, current.final_chain_digest
+    )
+    status = inspect_registration_prefix(events, prepared.application_digest)
+    if status == "partial":
+        raise RALValidationError(
+            "registrar_partial_transaction",
+            "a valid registration prefix requires explicit recovery",
+        )
+    if status == "conflicting":
+        raise RALValidationError(
+            "registrar_registration_conflict",
+            "canonical evidence conflicts with the staged registration",
+        )
+    if status == "complete":
+        raise RALValidationError(
+            "external_anchor_mismatch",
+            "registration exists under a different current ledger head",
+        )
+    return None
+
+
 def commit_admission_plan(
     canonical_root: Path,
     plan: RegistrarAdmissionPlan,
@@ -438,6 +820,9 @@ def commit_admission_plan(
         verified_attestation_refs,
     )
     canonical_root = Path(canonical_root)
+    existing = _inspect_current_outcome(canonical_root, plan, prepared)
+    if existing is not None:
+        return existing
     source_events = _source_events(canonical_root, plan.source_head)
     source_projection = project_events(source_events)
     _validate_decision(

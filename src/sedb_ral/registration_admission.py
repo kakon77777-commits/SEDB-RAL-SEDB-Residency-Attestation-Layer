@@ -48,6 +48,9 @@ class RegistrationDecision:
     def to_dict(self) -> dict[str, object]:
         return {**self._material(), "digest": self.digest}
 
+    def as_json(self) -> dict[str, object]:
+        return self.to_dict()
+
 
 def _decision(
     prepared: PreparedRegistration,
