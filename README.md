@@ -45,6 +45,12 @@ production initializer is separately action-gated and accepts only
 ledger event. See
 [`docs/runtime/PRODUCTION_REGISTRY_ROOT.md`](docs/runtime/PRODUCTION_REGISTRY_ROOT.md).
 
+The empty production public root was accepted on 2026-08-25 from commit
+`a7d2bf6`: protected parent/final ACLs, head-zero, same-volume checkpoint,
+byte-identical isolated restore, rollback red control, and fresh restore all
+verified with zero resident/private/network effects. This is infrastructure
+acceptance only; it is not a resident admission or private opt-in.
+
 ## Validate Phase 3A from a source checkout
 
 Phase 3A uses only synthetic applicants and temporary ledgers:

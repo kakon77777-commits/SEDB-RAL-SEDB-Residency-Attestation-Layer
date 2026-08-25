@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 
 from . import __version__
 from .canonical import canonical_bytes, sha256_ref
+from .contracts import validate_contract
 from .errors import RALValidationError
 from .registry_recovery import (
     create_registry_checkpoint,
@@ -325,6 +326,7 @@ def _source_paths(root: Path) -> tuple[Path, ...]:
         "src/sedb_ral/registry_root.py",
         "src/sedb_ral/registry_recovery.py",
         "src/sedb_ral/registry_root_acceptance.py",
+        "src/sedb_ral/schemas/production-registry-acceptance.schema.json",
         "scripts/Get-RegistryAclObservation.ps1",
         "scripts/Initialize-ProductionRegistry.ps1",
         "scripts/validate_registry_root.py",
@@ -751,3 +753,53 @@ def write_registry_root_report(
     with destination.open("xb") as stream:
         stream.write(canonical_bytes(report.as_json()) + b"\n")
     return destination
+
+
+def verify_production_registry_receipt(
+    value: Mapping[str, object],
+) -> None:
+    material = dict(value)
+    actual_digest = material.pop("receipt_digest", None)
+    if not isinstance(actual_digest, str) or sha256_ref(material) != actual_digest:
+        raise RALValidationError(
+            "production_registry_receipt_digest_mismatch",
+            "production registry receipt digest differs",
+        )
+
+    forbidden_keys = {
+        "owner_sid",
+        "sddl",
+        "sddl_sha256",
+        "authority_id",
+        "native_thread_id",
+        "native_session_id",
+        "native_turn_id",
+        "absolute_path",
+    }
+    forbidden_fragments = (
+        "c:\\users\\",
+        "d:\\",
+        "ai_home",
+        "appdata",
+        "temp\\",
+    )
+
+    def scan(item: object) -> bool:
+        if isinstance(item, dict):
+            return any(
+                str(key).casefold() in forbidden_keys or scan(child)
+                for key, child in item.items()
+            )
+        if isinstance(item, list):
+            return any(scan(child) for child in item)
+        if isinstance(item, str):
+            lowered = item.casefold()
+            return any(fragment in lowered for fragment in forbidden_fragments)
+        return False
+
+    if scan(value):
+        raise RALValidationError(
+            "production_registry_receipt_sensitive_material",
+            "production receipt contains host-private material",
+        )
+    validate_contract("production-registry-acceptance.schema.json", dict(value))

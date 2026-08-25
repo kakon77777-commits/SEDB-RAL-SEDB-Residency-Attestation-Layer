@@ -259,6 +259,7 @@ SCHEMA_NAMES = (
     "registry-checkpoint.schema.json",
     "registry-restore-receipt.schema.json",
     "registry-rollback-receipt.schema.json",
+    "production-registry-acceptance.schema.json",
 )
 
 

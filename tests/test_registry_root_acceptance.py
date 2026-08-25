@@ -13,7 +13,12 @@ from sedb_ral.registry_root_acceptance import (
     EXPECTED_CASE_IDS,
     EXPECTED_CONTROLS,
     validate_registry_root,
+    verify_production_registry_receipt,
     write_registry_root_report,
+)
+from sedb_ral.registry_root_contracts import (
+    APPROVED_ROOT_SCOPES,
+    bind_document_digest,
 )
 
 ROOT = __import__("pathlib").Path(__file__).parents[1]
@@ -113,8 +118,7 @@ def test_validator_script_writes_the_requested_report(tmp_path):
 def test_checked_synthetic_report_replays_under_its_commit_binding():
     checked = json.loads(
         (
-            ROOT
-            / "evidence/production-registry-root/2026-08-25-local-synthetic.json"
+            ROOT / "evidence/production-registry-root/2026-08-25-local-synthetic.json"
         ).read_text(encoding="utf-8")
     )
     live = validate_registry_root(ROOT).as_json()
@@ -124,3 +128,132 @@ def test_checked_synthetic_report_replays_under_its_commit_binding():
     live["report_digest"] = sha256_ref(material)
 
     assert live == checked
+
+
+def valid_production_receipt():
+    return bind_document_digest(
+        {
+            "schema": "sedb-ral.production-registry-acceptance/0.1",
+            "phase": "P3-4",
+            "status": "passed",
+            "production_root_ref": "AI_RESIDENCE/REGISTRY/SEDB-RAL",
+            "source_package_version": "0.4.0",
+            "source_commit": "a" * 40,
+            "ci": {
+                "workflow": "phase3a.yml",
+                "run_id": 32841941812,
+                "head_commit": "a" * 40,
+                "status": "success",
+                "successful_jobs": 6,
+                "job_count": 6,
+            },
+            "plan_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:" + "1" * 64,
+            "authority_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:" + "2" * 64,
+            "authority_scopes": list(APPROVED_ROOT_SCOPES),
+            "time_status": "host_wall_clock_unverified",
+            "registry_id": "registry:31e5ee61-2909-4f0d-bdaf-d0aa2f77ed92",
+            "manifest_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:" + "3" * 64,
+            "control_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:" + "4" * 64,
+            "canonical_tree_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:"
+            + "5" * 64,
+            "checkpoint_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:" + "6" * 64,
+            "checkpoint_snapshot_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:"
+            + "7" * 64,
+            "restore_receipt_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:"
+            + "8" * 64,
+            "rollback_receipt_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:"
+            + "9" * 64,
+            "restored_byte_map_digest": "sha256:sedb-ral-json-nfc-codepoint-v1:"
+            + "a" * 64,
+            "acl": {
+                "policy_fingerprint_match": True,
+                "inheritance_protected": True,
+                "required_principal_classes": [
+                    "configured_owner",
+                    "SYSTEM",
+                    "Administrators",
+                ],
+                "forbidden_write_count": 0,
+            },
+            "counts": {
+                "ledger_events": 0,
+                "applications": 0,
+                "residents": 0,
+                "addresses": 0,
+            },
+            "effects": {
+                "private_reads": 0,
+                "network": 0,
+                "external": 0,
+            },
+            "recovery": {
+                "storage_scope": "same_volume_local",
+                "restore_byte_identical": True,
+                "rollback_red_control": "checkpoint_manifest_digest_mismatch",
+                "fresh_restore_byte_identical": True,
+                "production_digest_unchanged": True,
+            },
+            "wrapper_history": {
+                "initializer_status": "stopped_after_candidate_prepare",
+                "publication_resume": "same_plan_core_no_replace",
+                "rollback_cli_status": "stopped_before_core_target_creation",
+                "rollback_resume": "same_authority_direct_core",
+                "cleanup_performed": False,
+            },
+            "evidence_refs": [
+                "evidence/production-registry-root/2026-08-25-local-synthetic.json",
+                "docs/runtime/PRODUCTION_REGISTRY_ROOT.md",
+            ],
+            "not_claimed": [
+                "resident_admission",
+                "private_access",
+                "offsite_backup",
+                "volume_loss_recovery",
+                "ctcl_registered_time",
+                "cleanup",
+            ],
+        },
+        "receipt_digest",
+    )
+
+
+def test_production_receipt_is_strict_digest_bound_and_sanitized():
+    receipt = valid_production_receipt()
+    verify_production_registry_receipt(receipt)
+
+    tampered = copy.deepcopy(receipt)
+    tampered["counts"]["residents"] = 1
+    with pytest.raises(RALValidationError) as caught:
+        verify_production_registry_receipt(tampered)
+    assert caught.value.code == "production_registry_receipt_digest_mismatch"
+
+    leaked = copy.deepcopy(receipt)
+    leaked.pop("receipt_digest")
+    leaked["production_root_ref"] = r"C:\Users\someone\private"
+    leaked = bind_document_digest(leaked, "receipt_digest")
+    with pytest.raises(RALValidationError) as caught:
+        verify_production_registry_receipt(leaked)
+    assert caught.value.code == "production_registry_receipt_sensitive_material"
+
+
+def test_validator_script_verifies_a_production_receipt(tmp_path):
+    receipt_path = tmp_path / "production.json"
+    receipt_path.write_bytes(canonical_bytes(valid_production_receipt()))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/validate_registry_root.py"),
+            "--verify-production-receipt",
+            str(receipt_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "schema": "sedb-ral.production-registry-receipt-verification/0.1",
+        "valid": True,
+    }

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-registry-acceptance.schema.json",
+  "title": "SEDB-RAL P3-4 production registry acceptance v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "phase", "status", "production_root_ref",
+    "source_package_version", "source_commit", "ci", "plan_digest",
+    "authority_digest", "authority_scopes", "time_status", "registry_id",
+    "manifest_digest", "control_digest", "canonical_tree_digest",
+    "checkpoint_digest", "checkpoint_snapshot_digest",
+    "restore_receipt_digest", "rollback_receipt_digest",
+    "restored_byte_map_digest", "acl", "counts", "effects", "recovery",
+    "wrapper_history", "evidence_refs", "not_claimed", "receipt_digest"
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  },
+  "properties": {
+    "schema": {"const": "sedb-ral.production-registry-acceptance/0.1"},
+    "phase": {"const": "P3-4"},
+    "status": {"const": "passed"},
+    "production_root_ref": {"const": "AI_RESIDENCE/REGISTRY/SEDB-RAL"},
+    "source_package_version": {"const": "0.4.0"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "run_id", "head_commit", "status", "successful_jobs", "job_count"],
+      "properties": {
+        "workflow": {"const": "phase3a.yml"},
+        "run_id": {"type": "integer", "minimum": 1},
+        "head_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "status": {"const": "success"},
+        "successful_jobs": {"const": 6},
+        "job_count": {"const": 6}
+      }
+    },
+    "plan_digest": {"$ref": "#/$defs/digest"},
+    "authority_digest": {"$ref": "#/$defs/digest"},
+    "authority_scopes": {"const": ["registry.root.initialize", "registry.root.inspect_acl", "registry.root.checkpoint", "registry.root.rehearse_restore", "registry.root.rehearse_rollback"]},
+    "time_status": {"const": "host_wall_clock_unverified"},
+    "registry_id": {"type": "string", "pattern": "^registry:[0-9a-f-]{36}$"},
+    "manifest_digest": {"$ref": "#/$defs/digest"},
+    "control_digest": {"$ref": "#/$defs/digest"},
+    "canonical_tree_digest": {"$ref": "#/$defs/digest"},
+    "checkpoint_digest": {"$ref": "#/$defs/digest"},
+    "checkpoint_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "restore_receipt_digest": {"$ref": "#/$defs/digest"},
+    "rollback_receipt_digest": {"$ref": "#/$defs/digest"},
+    "restored_byte_map_digest": {"$ref": "#/$defs/digest"},
+    "acl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_fingerprint_match", "inheritance_protected", "required_principal_classes", "forbidden_write_count"],
+      "properties": {
+        "policy_fingerprint_match": {"const": true},
+        "inheritance_protected": {"const": true},
+        "required_principal_classes": {"const": ["configured_owner", "SYSTEM", "Administrators"]},
+        "forbidden_write_count": {"const": 0}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ledger_events", "applications", "residents", "addresses"],
+      "properties": {
+        "ledger_events": {"const": 0},
+        "applications": {"const": 0},
+        "residents": {"const": 0},
+        "addresses": {"const": 0}
+      }
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private_reads", "network", "external"],
+      "properties": {
+        "private_reads": {"const": 0},
+        "network": {"const": 0},
+        "external": {"const": 0}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage_scope", "restore_byte_identical", "rollback_red_control", "fresh_restore_byte_identical", "production_digest_unchanged"],
+      "properties": {
+        "storage_scope": {"const": "same_volume_local"},
+        "restore_byte_identical": {"const": true},
+        "rollback_red_control": {"const": "checkpoint_manifest_digest_mismatch"},
+        "fresh_restore_byte_identical": {"const": true},
+        "production_digest_unchanged": {"const": true}
+      }
+    },
+    "wrapper_history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initializer_status", "publication_resume", "rollback_cli_status", "rollback_resume", "cleanup_performed"],
+      "properties": {
+        "initializer_status": {"const": "stopped_after_candidate_prepare"},
+        "publication_resume": {"const": "same_plan_core_no_replace"},
+        "rollback_cli_status": {"const": "stopped_before_core_target_creation"},
+        "rollback_resume": {"const": "same_authority_direct_core"},
+        "cleanup_performed": {"const": false}
+      }
+    },
+    "evidence_refs": {"const": ["evidence/production-registry-root/2026-08-25-local-synthetic.json", "docs/runtime/PRODUCTION_REGISTRY_ROOT.md"]},
+    "not_claimed": {"const": ["resident_admission", "private_access", "offsite_backup", "volume_loss_recovery", "ctcl_registered_time", "cleanup"]},
+    "receipt_digest": {"$ref": "#/$defs/digest"}
+  }
+}

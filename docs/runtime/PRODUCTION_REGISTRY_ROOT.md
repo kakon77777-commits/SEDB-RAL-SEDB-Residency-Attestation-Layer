@@ -11,6 +11,38 @@ memory store, applicant package, or private Residence projection. P3-4 creates
 no ledger genesis event and no resident, application, address, or authority
 event.
 
+## Production acceptance: 2026-08-25
+
+The exact root was initialized from source commit `a7d2bf6` after GitHub Actions
+run `32841941812` completed all six Ubuntu/Windows jobs successfully. Final
+independent replay verified:
+
+```text
+manifest/head-zero valid
+ledger events/anchors 0/0
+applications/residents/addresses 0/0/0
+private/network/external effects 0/0/0
+parent/final protected ACL policy match
+same-volume checkpoint valid
+isolated restore byte-identical
+rollback corruption detected
+fresh restore byte-identical
+production canonical digest unchanged
+```
+
+The first PowerShell initializer invocation stopped after candidate preparation
+and emitted its typed failure receipt. The candidate remained intact, independently
+verified under the same plan/authority, and was published once through the Core
+no-replace operation. The first rollback CLI wrapper invocation stopped before a
+rollback target existed; the same checkpoint/authority then completed once through
+the shared Core. No cleanup or replacement occurred. This wrapper history is part
+of the sanitized production receipt rather than being hidden.
+
+See
+[`2026-08-25-production.json`](../../evidence/production-registry-root/2026-08-25-production.json)
+for the strict digest-bound receipt. It contains no owner SID, SDDL, account name,
+temporary path, native task/session identifier, or authority ID.
+
 ## Safety model
 
 Initialization requires all of the following before candidate bytes are
