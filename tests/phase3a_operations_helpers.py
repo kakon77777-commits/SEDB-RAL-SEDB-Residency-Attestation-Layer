@@ -251,3 +251,22 @@ def synthetic_registry_status(**overrides: object) -> dict[str, object]:
     }
     value.update(overrides)
     return value
+
+
+def initialized_operations_workspace(tmp_path):
+    from sedb_ral.operations.models import OperationsPolicy
+    from sedb_ral.operations.workspace import (
+        initialize_synthetic_workspace,
+        plan_synthetic_workspace,
+    )
+
+    status = synthetic_registry_status()
+    policy = OperationsPolicy.from_dict(valid_policy())
+    plan = plan_synthetic_workspace(
+        registry_status=status,
+        policy=policy,
+        workspace_id="6f5121df-a649-49f3-a3f8-f1ef7df6f3af",
+        time_ref=TIME_REF,
+        target=tmp_path / "operations",
+    )
+    return initialize_synthetic_workspace(plan, policy)
