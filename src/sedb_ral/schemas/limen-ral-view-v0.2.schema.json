@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/limen/ral-view-v0.2.json",
+  "title": "LIMEN SEDB-RAL Public View v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "view_id",
+    "sequence",
+    "authority_head",
+    "binding_head",
+    "ledger_head",
+    "bindings",
+    "projection_conflicts",
+    "source_refs",
+    "not_claimed"
+  ],
+  "properties": {
+    "schema": {"const": "limen.ral-view/0.2"},
+    "profile": {"const": "sedb-ral/0.3.0"},
+    "view_id": {"type": "string", "minLength": 1},
+    "sequence": {"type": "integer", "minimum": 1},
+    "authority_head": {"$ref": "#/$defs/canonicalDigest"},
+    "binding_head": {"$ref": "#/$defs/canonicalDigest"},
+    "ledger_head": {"$ref": "#/$defs/ledgerDigest"},
+    "bindings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/binding"}
+    },
+    "projection_conflicts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/conflict"}
+    },
+    "source_refs": {"$ref": "#/$defs/nonemptyUniqueStrings"},
+    "not_claimed": {
+      "const": [
+        "private_access",
+        "host_observation",
+        "host_enforcement",
+        "registry_authority",
+        "identity_merge"
+      ]
+    }
+  },
+  "$defs": {
+    "canonicalDigest": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+    },
+    "ledgerDigest": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-chain-v1:[0-9a-f]{64}$"
+    },
+    "nonemptyUniqueStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "provider",
+        "adapter_kind",
+        "identifier_kind",
+        "identifier_components",
+        "native_thread_id",
+        "native_session_id",
+        "session_match_policy",
+        "resident_id",
+        "instance_id",
+        "continuity_line_id",
+        "speaker_label",
+        "status",
+        "valid_from_sequence",
+        "valid_until_sequence",
+        "lineage_from_thread_ids",
+        "supersedes_binding_id",
+        "source_refs"
+      ],
+      "properties": {
+        "binding_id": {"type": "string", "minLength": 1},
+        "provider": {"const": "openai"},
+        "adapter_kind": {
+          "enum": ["codex_app_task_tool", "codex_app_server"]
+        },
+        "identifier_kind": {"const": "codex_thread"},
+        "identifier_components": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["native_thread_id", "native_session_id"]
+          }
+        },
+        "native_thread_id": {"type": "string", "minLength": 1},
+        "native_session_id": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "session_match_policy": {
+          "enum": ["not_applicable_for_profile", "required_exact"]
+        },
+        "resident_id": {"type": "string", "minLength": 1},
+        "instance_id": {"type": "string", "minLength": 1},
+        "continuity_line_id": {"type": "string", "minLength": 1},
+        "speaker_label": {"type": "string", "minLength": 1},
+        "status": {
+          "enum": ["active", "suspended", "tombstoned", "withdrawn"]
+        },
+        "valid_from_sequence": {"type": "integer", "minimum": 1},
+        "valid_until_sequence": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "lineage_from_thread_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "supersedes_binding_id": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "source_refs": {"$ref": "#/$defs/nonemptyUniqueStrings"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter_kind": {"const": "codex_app_task_tool"}
+            },
+            "required": ["adapter_kind"]
+          },
+          "then": {
+            "properties": {
+              "identifier_components": {"const": ["native_thread_id"]},
+              "native_session_id": {"const": null},
+              "session_match_policy": {
+                "const": "not_applicable_for_profile"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter_kind": {"const": "codex_app_server"}
+            },
+            "required": ["adapter_kind"]
+          },
+          "then": {
+            "properties": {
+              "identifier_components": {
+                "const": ["native_thread_id", "native_session_id"]
+              },
+              "native_session_id": {"type": "string", "minLength": 1},
+              "session_match_policy": {"const": "required_exact"}
+            }
+          }
+        }
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conflict_id",
+        "error_code",
+        "namespace",
+        "locator",
+        "binding_refs",
+        "source_refs"
+      ],
+      "properties": {
+        "conflict_id": {"type": "string", "minLength": 1},
+        "error_code": {
+          "enum": [
+            "address_binding_conflict",
+            "instance_binding_ambiguous",
+            "continuity_line_missing",
+            "continuity_line_ambiguous",
+            "adapter_profile_unsupported",
+            "binding_source_invalid"
+          ]
+        },
+        "namespace": {"type": "string", "minLength": 1},
+        "locator": {"type": "string", "minLength": 1},
+        "binding_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "source_refs": {"$ref": "#/$defs/nonemptyUniqueStrings"}
+      }
+    }
+  }
+}

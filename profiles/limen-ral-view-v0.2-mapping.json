@@ -1,0 +1,39 @@
+{
+  "profile_id": "limen-ral-view-v0.2-mapping",
+  "profile_version": "1",
+  "contract_schema": "limen.ral-view/0.2",
+  "contract_path": "src/sedb_ral/schemas/limen-ral-view-v0.2.schema.json",
+  "contract_sha256": "32aefbb92345538b0320930e237f35791c0c43c5a1f7e40eace5d7248d803373",
+  "source_profile": "sedb-ral/0.3.0",
+  "adapter_mappings": [
+    {
+      "source_namespace": "codex_thread",
+      "source_adapter_kind": "codex_app_task_tool",
+      "provider": "openai",
+      "identifier_kind": "codex_thread",
+      "identifier_components": ["native_thread_id"],
+      "session_match_policy": "not_applicable_for_profile"
+    },
+    {
+      "source_namespace": "codex_thread",
+      "source_adapter_kind": "codex_app_server",
+      "provider": "openai",
+      "identifier_kind": "codex_thread",
+      "identifier_components": ["native_thread_id", "native_session_id"],
+      "session_match_policy": "required_exact"
+    }
+  ],
+  "status_mappings": {
+    "active": "active",
+    "suspended": "suspended",
+    "revoked": "tombstoned",
+    "unknown": "suspended"
+  },
+  "not_claimed": [
+    "private_access",
+    "host_observation",
+    "host_enforcement",
+    "registry_authority",
+    "identity_merge"
+  ]
+}
