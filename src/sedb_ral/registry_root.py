@@ -97,6 +97,68 @@ def _is_reparse(path: Path) -> bool:
     return path.is_symlink() or bool(attributes & 0x400)
 
 
+def _windows_hardlink_names(path: Path) -> tuple[str, ...]:
+    if os.name != "nt":
+        return (str(path.resolve()),)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    find_first = kernel32.FindFirstFileNameW
+    find_first.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_wchar_p,
+    ]
+    find_first.restype = ctypes.c_void_p
+    find_next = kernel32.FindNextFileNameW
+    find_next.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_wchar_p,
+    ]
+    find_next.restype = ctypes.c_int
+    close = kernel32.FindClose
+    close.argtypes = [ctypes.c_void_p]
+    close.restype = ctypes.c_int
+    capacity = 32768
+    length = ctypes.c_uint32(capacity)
+    buffer = ctypes.create_unicode_buffer(capacity)
+    handle = find_first(str(path.resolve()), 0, ctypes.byref(length), buffer)
+    invalid = ctypes.c_void_p(-1).value
+    if handle == invalid:
+        error = ctypes.get_last_error()
+        raise RALValidationError(
+            "registry_path_unreadable",
+            f"hard-link names cannot be inspected ({error})",
+        )
+    names = [buffer.value]
+    try:
+        while True:
+            length = ctypes.c_uint32(capacity)
+            buffer = ctypes.create_unicode_buffer(capacity)
+            if find_next(handle, ctypes.byref(length), buffer):
+                names.append(buffer.value)
+                continue
+            error = ctypes.get_last_error()
+            if error == 38:  # ERROR_HANDLE_EOF
+                break
+            raise RALValidationError(
+                "registry_path_unreadable",
+                f"hard-link names cannot be inspected ({error})",
+            )
+    finally:
+        close(handle)
+    return tuple(names)
+
+
+def _has_multiple_hardlinks(path: Path) -> bool:
+    if path.stat().st_nlink <= 1:
+        return False
+    if os.name != "nt":
+        return True
+    names = {name.casefold() for name in _windows_hardlink_names(path)}
+    return len(names) > 1
+
+
 def _walk(root: Path) -> tuple[list[Path], list[Path]]:
     directories: list[Path] = []
     files: list[Path] = []
@@ -126,7 +188,7 @@ def _walk(root: Path) -> tuple[list[Path], list[Path]]:
                     "registry_root_reparse_point",
                     "registry tree contains a reparse point",
                 )
-            if path.stat().st_nlink != 1:
+            if _has_multiple_hardlinks(path):
                 raise RALValidationError(
                     "registry_hard_link_detected",
                     "registry files must be copied values",

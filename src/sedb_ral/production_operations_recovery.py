@@ -9,6 +9,7 @@ from .canonical import sha256_ref
 from .errors import RALValidationError
 from .registry_root import (
     RegistryStorage,
+    _has_multiple_hardlinks,
     _read_object,
     _reject_alternate_streams,
     _reject_private_markers,
@@ -80,7 +81,7 @@ def _manifest_bytes(material: Mapping[str, object]) -> bytes:
 
 
 def _copy_file_new(source: Path, destination: Path) -> None:
-    if source.is_symlink() or source.stat().st_nlink != 1:
+    if source.is_symlink() or _has_multiple_hardlinks(source):
         raise RALValidationError(
             "checkpoint_link_detected", "checkpoint inputs must be copied values"
         )
