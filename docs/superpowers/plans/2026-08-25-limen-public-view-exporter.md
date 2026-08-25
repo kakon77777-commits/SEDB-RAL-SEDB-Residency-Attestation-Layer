@@ -59,9 +59,12 @@ sections 7, 8, 10, 21, and 23.
 **Interfaces:**
 - Produces schema ID `limen.ral-view/0.2`.
 - Produces profile ID `limen-ral-view-v0.2-mapping`, version `1`.
-- The profile pins the exact schema SHA-256 and these adapter mappings:
-  `codex_app_task_tool -> openai/codex_thread/native_thread_id` and
-  `codex_app_server -> openai/codex_thread/native_thread_id+native_session_id`.
+- The profile pins the exact schema SHA-256 and the only source mapping that
+  current canonical address records can prove:
+  `codex_app_task_tool -> openai/codex_thread/native_thread_id`.
+- The shared schema can describe an App Server binding, but this exporter does
+  not emit one because canonical SEDB-RAL address records do not yet retain a
+  native session component.
 
 - [ ] **Step 1: Write the failing contract tests**
 

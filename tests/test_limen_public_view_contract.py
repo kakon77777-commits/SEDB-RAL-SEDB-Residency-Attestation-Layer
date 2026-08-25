@@ -178,19 +178,16 @@ def test_mapping_profile_pins_actual_contract_bytes_and_exact_adapters():
             "identifier_kind": "codex_thread",
             "identifier_components": ["native_thread_id"],
             "session_match_policy": "not_applicable_for_profile",
-        },
-        {
-            "source_namespace": "codex_thread",
-            "source_adapter_kind": "codex_app_server",
-            "provider": "openai",
-            "identifier_kind": "codex_thread",
-            "identifier_components": [
-                "native_thread_id",
-                "native_session_id",
-            ],
-            "session_match_policy": "required_exact",
-        },
+        }
     ]
+
+
+def test_mapping_profile_does_not_claim_app_server_without_session_evidence():
+    profile = load_profile()
+
+    assert {
+        item["source_adapter_kind"] for item in profile["adapter_mappings"]
+    } == {"codex_app_task_tool"}
 
 
 def test_profile_and_contract_have_no_private_or_host_observation_fields():

@@ -13,14 +13,6 @@
       "identifier_kind": "codex_thread",
       "identifier_components": ["native_thread_id"],
       "session_match_policy": "not_applicable_for_profile"
-    },
-    {
-      "source_namespace": "codex_thread",
-      "source_adapter_kind": "codex_app_server",
-      "provider": "openai",
-      "identifier_kind": "codex_thread",
-      "identifier_components": ["native_thread_id", "native_session_id"],
-      "session_match_policy": "required_exact"
     }
   ],
   "status_mappings": {
