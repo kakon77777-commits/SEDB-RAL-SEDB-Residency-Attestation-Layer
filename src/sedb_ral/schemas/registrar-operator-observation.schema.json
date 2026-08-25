@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registrar-operator-observation.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "observation_id", "task_ref", "identifier_kind", "adapter_kind", "observed_origin", "principal_ref_claim", "authorship_attestation_ref", "verified_attestation_refs", "process_evidence_ref", "unavailable_fields", "observed_time_ref", "not_claimed", "observation_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.registrar-operator-observation/0.1"},
+    "observation_id": {"type": "string", "minLength": 1},
+    "task_ref": {"type": "string", "minLength": 1},
+    "identifier_kind": {"type": "string", "minLength": 1},
+    "adapter_kind": {"type": "string", "minLength": 1},
+    "observed_origin": {"type": "string", "minLength": 1},
+    "principal_ref_claim": {"type": "string", "minLength": 1},
+    "authorship_attestation_ref": {"type": ["string", "null"], "minLength": 1},
+    "verified_attestation_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "process_evidence_ref": {"type": ["string", "null"], "minLength": 1},
+    "unavailable_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "observed_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "observation_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

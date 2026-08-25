@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/foreign-schema-pin.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_id", "schema_version", "source_repository", "source_commit", "raw_sha256", "profile_ref", "pin_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.foreign-schema-pin/0.1"},
+    "schema_id": {"type": "string", "format": "uri", "minLength": 1},
+    "schema_version": {"type": "string", "minLength": 1},
+    "source_repository": {"type": "string", "format": "uri", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "profile_ref": {"type": "string", "minLength": 1},
+    "pin_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}
