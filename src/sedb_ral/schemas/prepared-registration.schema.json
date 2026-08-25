@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/prepared-registration.schema.json",
+  "title": "SEDB-RAL Prepared Registration v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "prepared_id",
+    "applicant_claim",
+    "host_observation",
+    "application",
+    "continuity_line_id",
+    "application_digest",
+    "preparation_digest",
+    "not_claimed"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.prepared-registration/0.1"},
+    "prepared_id": {"type": "string", "minLength": 1},
+    "applicant_claim": {"$ref": "self-application-claim.schema.json"},
+    "host_observation": {
+      "$ref": "registration-host-observation.schema.json"
+    },
+    "application": {"$ref": "application.schema.json"},
+    "continuity_line_id": {"type": "string", "minLength": 1},
+    "application_digest": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+    },
+    "preparation_digest": {
+      "type": "string",
+      "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"
+    },
+    "not_claimed": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

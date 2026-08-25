@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/self-application-claim.schema.json",
+  "title": "SEDB-RAL Self-Application Claim v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "applicant_claim_only",
+    "desired_display_label",
+    "existing_resident_claim",
+    "continuity_claim",
+    "desired_addresses",
+    "role_description_claim",
+    "dissent_or_limits",
+    "opt_in",
+    "relay_is_authorship",
+    "not_claimed"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.self-application-claim/0.1"},
+    "applicant_claim_only": {"const": true},
+    "desired_display_label": {"type": "string", "minLength": 1},
+    "existing_resident_claim": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "continuity_claim": {"enum": ["new", "continue", "uncertain"]},
+    "desired_addresses": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["namespace", "identifier_kind", "locator"],
+        "properties": {
+          "namespace": {"const": "codex_thread"},
+          "identifier_kind": {"const": "codex_thread"},
+          "locator": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "role_description_claim": {"type": "string", "minLength": 1},
+    "dissent_or_limits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "opt_in": {"type": "boolean"},
+    "relay_is_authorship": {"const": false},
+    "not_claimed": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
