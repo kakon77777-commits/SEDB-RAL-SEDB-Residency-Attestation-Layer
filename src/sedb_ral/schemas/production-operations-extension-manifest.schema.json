@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-operations-extension-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "extension_kind", "extension_version", "extension_ref", "operations_generation", "registry_id", "registry_manifest_digest", "registry_control_digest", "base_tree_digest", "dormant_policy_ref", "dormant_policy_digest", "activation_commit_ref", "created_time_ref", "production_activation", "execution_enabled", "not_claimed", "manifest_digest"],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-operations-extension-manifest/0.1"},
+    "extension_kind": {"const": "registrar-operations"},
+    "extension_version": {"const": "v1"},
+    "extension_ref": {"const": "extensions/registrar-operations/v1"},
+    "operations_generation": {"type": "string", "minLength": 1},
+    "registry_id": {"type": "string", "minLength": 1},
+    "registry_manifest_digest": {"type": "string", "minLength": 1},
+    "registry_control_digest": {"type": "string", "minLength": 1},
+    "base_tree_digest": {"type": "string", "minLength": 1},
+    "dormant_policy_ref": {"const": "policies/policy-production-dormant-v1.json"},
+    "dormant_policy_digest": {"type": "string", "minLength": 1},
+    "activation_commit_ref": {"const": "ACTIVATION-COMMIT.json"},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "production_activation": {"const": true},
+    "execution_enabled": {"const": false},
+    "not_claimed": {"const": ["resident_registration", "ledger_append", "private_access"]},
+    "manifest_digest": {"type": "string", "minLength": 1}
+  }
+}
