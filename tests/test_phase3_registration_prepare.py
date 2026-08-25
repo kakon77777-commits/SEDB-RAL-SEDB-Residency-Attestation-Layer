@@ -6,7 +6,6 @@ from sedb_ral.canonical import sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registration import RegistrationIds, prepare_registration
 
-
 TIME = "ctcl:instant:test-registration"
 
 IDS = RegistrationIds(

@@ -66,6 +66,23 @@ class PreparedRegistration:
         )
 
 
+def validate_prepared_registration(prepared: PreparedRegistration) -> None:
+    value = prepared.to_dict()
+    validate_contract("prepared-registration.schema.json", value)
+    actual_application_digest = sha256_ref(value["application"])
+    if actual_application_digest != value["application_digest"]:
+        raise RALValidationError(
+            "prepared_application_digest_mismatch",
+            "the prepared application differs from its bound digest",
+        )
+    preparation_digest = value.pop("preparation_digest")
+    if sha256_ref(value) != preparation_digest:
+        raise RALValidationError(
+            "prepared_registration_digest_mismatch",
+            "the prepared registration differs from its bound digest",
+        )
+
+
 def _id_text(value: str) -> str:
     return "".join(
         character

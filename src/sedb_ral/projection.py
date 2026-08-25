@@ -29,6 +29,48 @@ class RegistryProjection:
     )
 
 
+def continuity_line_for(
+    resident_id: str, projection: RegistryProjection
+) -> str | None:
+    resident = projection.residents.get(resident_id)
+    if resident is None:
+        return None
+    instance_ids = {
+        str(instance["instance_id"])
+        for instance in resident.get("instances", ())
+        if isinstance(instance, Mapping) and "instance_id" in instance
+    }
+    resident_claims = {
+        str(claim["claim_id"]): claim
+        for claim in resident.get("claims", ())
+        if isinstance(claim, Mapping) and "claim_id" in claim
+    }
+    for claim_id, claim in projection.claims.items():
+        resident_claims.setdefault(claim_id, claim)
+    lines: set[str] = set()
+    for claim in resident_claims.values():
+        if (
+            claim.get("predicate") != "continuity_line_id"
+            or claim.get("claimant_ref") != resident_id
+            or claim.get("subject_ref") != resident_id
+            or claim.get("claimed_authored_by_instance") not in instance_ids
+        ):
+            continue
+        line_id = claim.get("object")
+        if not isinstance(line_id, str) or not line_id:
+            raise RALValidationError(
+                "continuity_line_invalid",
+                "a registered continuity-line claim is not a non-empty string",
+            )
+        lines.add(line_id)
+    if len(lines) > 1:
+        raise RALValidationError(
+            "continuity_line_ambiguous",
+            "the resident has multiple distinct continuity-line claims",
+        )
+    return next(iter(lines), None)
+
+
 def _copy(value: object) -> object:
     return loads_strict(canonical_bytes(value).decode("utf-8"))
 

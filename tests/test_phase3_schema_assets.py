@@ -1,16 +1,14 @@
 import copy
 
 import pytest
-
-from sedb_ral.contracts import load_schema, validate_contract
-from sedb_ral.errors import RALValidationError
-
 from test_phase3_registration_prepare import (
     IDS,
     valid_claim,
     valid_host_observation,
 )
 
+from sedb_ral.contracts import load_schema, validate_contract
+from sedb_ral.errors import RALValidationError
 
 SCHEMA_IDS = {
     "self-application-claim.schema.json": (
