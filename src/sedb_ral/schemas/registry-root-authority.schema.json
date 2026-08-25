@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-root-authority.schema.json",
+  "title": "SEDB-RAL production registry root authority v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "authority_id", "operation_plan_digest", "exact_root", "scopes",
+    "status", "issued_time_ref", "authorization_basis", "expires_after_use",
+    "not_claimed", "authority_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-root-authority/0.1"},
+    "authority_id": {"type": "string", "pattern": "^authority:[0-9a-f-]{36}$"},
+    "operation_plan_digest": {"type": "string", "minLength": 1},
+    "exact_root": {"type": "string", "minLength": 1},
+    "scopes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "status": {"enum": ["active", "revoked", "expired", "suspended"]},
+    "issued_time_ref": {"type": "string", "minLength": 1},
+    "authorization_basis": {"const": "direct_user_instruction"},
+    "expires_after_use": {"const": true},
+    "not_claimed": {"const": ["resident_identity", "resident_registration", "private_access", "delete_authority"]},
+    "authority_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

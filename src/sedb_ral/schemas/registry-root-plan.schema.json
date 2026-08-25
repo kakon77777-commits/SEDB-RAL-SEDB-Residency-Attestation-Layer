@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-root-plan.schema.json",
+  "title": "SEDB-RAL production registry root plan v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "operation", "final_root", "registry_parent", "candidate_id",
+    "candidate_name", "candidate_root", "source_package_name",
+    "source_package_version", "source_commit", "canonicalization_version",
+    "chain_version", "filesystem", "volume_identity", "time_ref",
+    "not_claimed", "plan_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-root-plan/0.1"},
+    "operation": {"const": "registry.root.initialize"},
+    "final_root": {"type": "string", "minLength": 1},
+    "registry_parent": {"type": "string", "minLength": 1},
+    "candidate_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "candidate_name": {"type": "string", "pattern": "^\\.SEDB-RAL\\.init-[0-9a-f-]{36}$"},
+    "candidate_root": {"type": "string", "minLength": 1},
+    "source_package_name": {"const": "sedb-ral"},
+    "source_package_version": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "canonicalization_version": {"const": "sedb-ral-json-nfc-codepoint-v1"},
+    "chain_version": {"const": "sedb-ral-ledger-chain-v1"},
+    "filesystem": {"const": "NTFS"},
+    "volume_identity": {"type": "string", "minLength": 1},
+    "time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["resident_registration", "private_access", "root_replacement", "root_deletion", "offsite_backup"]},
+    "plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

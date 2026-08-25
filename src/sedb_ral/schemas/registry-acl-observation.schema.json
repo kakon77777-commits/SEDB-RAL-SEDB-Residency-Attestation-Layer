@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-acl-observation.schema.json",
+  "title": "SEDB-RAL registry ACL observation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "observed_root", "owner_sid", "filesystem", "volume_identity",
+    "inheritance_protected", "reparse_point", "required_full_control_sids",
+    "forbidden_write_sids", "sddl_sha256", "observed_time_ref",
+    "not_claimed", "acl_fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-acl-observation/0.1"},
+    "observed_root": {"type": "string", "minLength": 1},
+    "owner_sid": {"type": "string", "pattern": "^S-[0-9-]+$"},
+    "filesystem": {"type": "string", "minLength": 1},
+    "volume_identity": {"type": "string", "minLength": 1},
+    "inheritance_protected": {"type": "boolean"},
+    "reparse_point": {"type": "boolean"},
+    "required_full_control_sids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^S-[0-9-]+$"}},
+    "forbidden_write_sids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^S-[0-9-]+$"}},
+    "sddl_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "observed_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["offsite_backup", "private_confidentiality", "multi_host_security"]},
+    "acl_fingerprint": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registry-head-receipt.schema.json",
+  "title": "SEDB-RAL registry head receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "registry_id", "control_sequence", "ledger_event_count",
+    "ledger_head", "last_event_id", "manifest_digest",
+    "previous_control_digest", "recorded_time_ref", "not_claimed",
+    "control_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registry-head-receipt/0.1"},
+    "registry_id": {"type": "string", "pattern": "^registry:[0-9a-f-]{36}$"},
+    "control_sequence": {"const": 0},
+    "ledger_event_count": {"const": 0},
+    "ledger_head": {"type": "null"},
+    "last_event_id": {"type": "null"},
+    "manifest_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "previous_control_digest": {"type": "null"},
+    "recorded_time_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"const": ["resident_registration", "external_backup", "nonempty_ledger"]},
+    "control_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

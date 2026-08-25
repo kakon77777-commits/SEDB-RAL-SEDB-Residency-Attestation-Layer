@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/production-registry-manifest.schema.json",
+  "title": "SEDB-RAL production registry manifest v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "registry_id", "root_kind", "canonical_ledger_ref",
+    "control_heads_ref", "checkpoints_ref", "rehearsals_ref", "evidence_ref",
+    "source_package_name", "source_package_version", "source_commit",
+    "canonicalization_version", "chain_version", "filesystem",
+    "volume_identity", "acl_fingerprint", "initialized_time_ref",
+    "initial_control_ref", "not_claimed", "manifest_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.production-registry-manifest/0.1"},
+    "registry_id": {"type": "string", "pattern": "^registry:[0-9a-f-]{36}$"},
+    "root_kind": {"const": "public_registry"},
+    "canonical_ledger_ref": {"const": "ledger"},
+    "control_heads_ref": {"const": "control/heads"},
+    "checkpoints_ref": {"const": "checkpoints"},
+    "rehearsals_ref": {"const": "rehearsals"},
+    "evidence_ref": {"const": "evidence"},
+    "source_package_name": {"const": "sedb-ral"},
+    "source_package_version": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "canonicalization_version": {"const": "sedb-ral-json-nfc-codepoint-v1"},
+    "chain_version": {"const": "sedb-ral-ledger-chain-v1"},
+    "filesystem": {"const": "NTFS"},
+    "volume_identity": {"type": "string", "minLength": 1},
+    "acl_fingerprint": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "initialized_time_ref": {"type": "string", "minLength": 1},
+    "initial_control_ref": {"const": "control/heads/00000000000000000000.json"},
+    "not_claimed": {"const": ["resident_registration", "private_access", "offsite_backup"]},
+    "manifest_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}
