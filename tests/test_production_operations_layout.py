@@ -9,7 +9,13 @@ from sedb_ral.errors import RALValidationError
 from sedb_ral.production_operations_contracts import (
     plan_production_operations_extension,
 )
-from sedb_ral.production_operations_layout import registry_generation_digest
+from sedb_ral.production_operations_layout import (
+    prepare_production_operations_candidate,
+    publish_production_operations_candidate,
+    registry_generation_digest,
+    verify_production_operations_candidate,
+    write_activation_receipt,
+)
 from sedb_ral.registry_root import (
     RegistryStorage,
     prepare_registry_candidate,
@@ -29,6 +35,7 @@ from production_operations_helpers import (
     manifest_value,
 )
 from test_registry_root import ready_storage
+from test_registry_root_contracts import valid_acl
 
 
 @pytest.fixture
@@ -173,7 +180,7 @@ def test_complete_extension_without_receipt_is_dormant_unreceipted(
     assert status["resident_count"] == 0
 
 
-def write_activation_receipt(storage, plan, index, generation_digest):
+def write_fixture_activation_receipt(storage, plan, index, generation_digest):
     receipt = bind_document_digest(
         {
             "schema": "sedb-ral.production-operations-activation-receipt/0.1",
@@ -201,7 +208,7 @@ def write_activation_receipt(storage, plan, index, generation_digest):
 def test_exact_post_move_receipt_activates_dormant_status(published_storage):
     plan, index = install_extension(published_storage)
     unreceipted = registry_root_status(storage=published_storage)
-    write_activation_receipt(
+    write_fixture_activation_receipt(
         published_storage,
         plan,
         index,
@@ -238,3 +245,120 @@ def test_present_incomplete_extension_fails_closed(published_storage, missing):
 
     with pytest.raises(RALValidationError, match="production_operations_extension_layout_mismatch"):
         registry_root_status(storage=published_storage)
+
+
+def candidate_inputs(storage):
+    status = registry_root_status(storage=storage)
+    policy = dormant_policy.__wrapped__()
+    candidate_root = rf"D:\AI_RESIDENCE\REGISTRY\.SEDB-RAL.operations-{CANDIDATE_ID}"
+    acl = valid_acl(candidate_root)
+    plan = plan_production_operations_extension(
+        registry_status=status,
+        candidate_id=CANDIDATE_ID,
+        operations_generation=GENERATION,
+        policy_digest=policy["policy_digest"],
+        source_commit="2470be770962556998925a739c3d1099dc830786",
+        source_package_version="0.5.0b1",
+        filesystem="NTFS",
+        volume_identity=acl["volume_identity"],
+        expected_owner_sid=acl["owner_sid"],
+        acl_fingerprint=acl["acl_fingerprint"],
+        pre_checkpoint_digest=digest("3"),
+        time_ref=TIME_REF,
+    )
+    return plan, authority_value(plan["plan_digest"]), acl, policy
+
+
+def test_atomic_publish_moves_only_complete_extensions_tree(published_storage):
+    plan, authority, acl, policy = candidate_inputs(published_storage)
+    candidate = published_storage.parent / plan["candidate_name"]
+    candidate.mkdir()
+    prepared = prepare_production_operations_candidate(
+        plan, authority, acl, policy, storage=published_storage
+    )
+    verified = verify_production_operations_candidate(
+        plan, prepared, storage=published_storage
+    )
+
+    result = publish_production_operations_candidate(
+        plan, verified, storage=published_storage
+    )
+
+    assert result["published"] is True
+    assert (published_storage.final / "extensions").is_dir()
+    assert not (candidate / "extensions").exists()
+    assert registry_root_status(storage=published_storage)["extensions_status"] == "active_dormant_unreceipted"
+
+
+def test_candidate_tamper_after_verification_refuses_publication(published_storage):
+    plan, authority, acl, policy = candidate_inputs(published_storage)
+    candidate = published_storage.parent / plan["candidate_name"]
+    candidate.mkdir()
+    prepared = prepare_production_operations_candidate(
+        plan, authority, acl, policy, storage=published_storage
+    )
+    verified = verify_production_operations_candidate(
+        plan, prepared, storage=published_storage
+    )
+    (candidate / "extensions/registrar-operations/v1/inbox/tampered.json").write_text("{}")
+
+    with pytest.raises(RALValidationError, match="production_operations_candidate_tree_digest_mismatch"):
+        publish_production_operations_candidate(
+            plan, verified, storage=published_storage
+        )
+    assert not (published_storage.final / "extensions").exists()
+
+
+def test_existing_destination_refuses_without_replacement(published_storage):
+    install_extension(published_storage)
+    before = (published_storage.final / "extensions/index/00000000000000000000.json").read_bytes()
+    plan, authority, acl, policy = candidate_inputs(published_storage)
+    candidate = published_storage.parent / plan["candidate_name"]
+    candidate.mkdir()
+
+    with pytest.raises(RALValidationError, match="production_operations_extension_exists"):
+        prepare_production_operations_candidate(
+            plan, authority, acl, policy, storage=published_storage
+        )
+    assert (published_storage.final / "extensions/index/00000000000000000000.json").read_bytes() == before
+
+
+def test_post_move_receipt_is_create_only_and_activates_status(published_storage):
+    plan, authority, acl, policy = candidate_inputs(published_storage)
+    candidate = published_storage.parent / plan["candidate_name"]
+    candidate.mkdir()
+    prepared = prepare_production_operations_candidate(
+        plan, authority, acl, policy, storage=published_storage
+    )
+    verified = verify_production_operations_candidate(
+        plan, prepared, storage=published_storage
+    )
+    publish_production_operations_candidate(plan, verified, storage=published_storage)
+    index = _read_object(
+        published_storage.final / "extensions/index/00000000000000000000.json"
+    )
+
+    receipt = write_activation_receipt(
+        root=published_storage.final,
+        plan=plan,
+        index=index,
+        observed_time_ref=TIME_REF,
+    )
+
+    assert receipt["candidate_id"] == CANDIDATE_ID
+    assert registry_root_status(storage=published_storage)["extensions_status"] == "active_dormant"
+    with pytest.raises(RALValidationError):
+        write_activation_receipt(
+            root=published_storage.final,
+            plan=plan,
+            index=index,
+            observed_time_ref=TIME_REF,
+        )
+
+
+def _read_object(path: Path) -> dict[str, object]:
+    import json
+
+    value = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
