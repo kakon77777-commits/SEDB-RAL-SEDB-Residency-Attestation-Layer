@@ -17,6 +17,7 @@ from sedb_ral.registry_root_contracts import (
     RegistryRootAuthority,
     RegistryRootPlan,
     bind_document_digest,
+    bind_registry_acl_fingerprint,
     plan_registry_root,
     verify_registry_acl,
     verify_root_authority,
@@ -86,7 +87,7 @@ def valid_acl(root: str) -> dict[str, object]:
             "multi_host_security",
         ],
     }
-    return bind_document_digest(value, "acl_fingerprint")
+    return bind_registry_acl_fingerprint(value)
 
 
 def test_root_plan_is_deterministic_and_binds_exact_candidate():
@@ -207,6 +208,18 @@ def test_parent_and_candidate_acl_require_protected_reviewed_sids():
     )
 
 
+def test_acl_policy_fingerprint_is_stable_across_rename_and_observation_time():
+    parent = valid_acl(PARENT_ROOT)
+    final_material = {
+        key: value for key, value in parent.items() if key != "acl_fingerprint"
+    }
+    final_material["observed_root"] = FINAL_ROOT
+    final_material["observed_time_ref"] = "time:later-observation"
+    final = bind_registry_acl_fingerprint(final_material)
+
+    assert final["acl_fingerprint"] == parent["acl_fingerprint"]
+
+
 @pytest.mark.parametrize(
     ("change", "code"),
     [
@@ -223,9 +236,8 @@ def test_parent_and_candidate_acl_require_protected_reviewed_sids():
 def test_acl_rejects_broad_or_incomplete_access(change, code):
     value = valid_acl(PARENT_ROOT)
     value.update(change)
-    value = bind_document_digest(
-        {key: item for key, item in value.items() if key != "acl_fingerprint"},
-        "acl_fingerprint",
+    value = bind_registry_acl_fingerprint(
+        {key: item for key, item in value.items() if key != "acl_fingerprint"}
     )
 
     with pytest.raises(RALValidationError) as caught:

@@ -168,6 +168,13 @@ The ACL receipt records:
 - check time reference;
 - `not_claimed: offsite_backup, private_confidentiality, multi_host_security`.
 
+`acl_fingerprint` binds the ACL policy material (owner SID, SDDL hash,
+filesystem/volume, inheritance/reparse state, and required/forbidden access).
+It deliberately excludes the observed path and observation time, so an
+unchanged ACL retains the same fingerprint when the verified candidate is
+renamed to the final root. The path and time remain separately recorded and
+validated.
+
 ACL changes are limited to the newly created `REGISTRY` parent and its
 candidate/public registry tree. No ACL on `D:\AI_RESIDENCE` or `AI_HOME` is
 changed.

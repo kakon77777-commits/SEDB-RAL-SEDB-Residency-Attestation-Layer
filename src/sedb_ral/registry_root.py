@@ -418,6 +418,13 @@ def prepare_registry_candidate(
         expected_root=str(parsed_plan["candidate_root"]),
         expected_owner_sid=owner_sid,
     )
+    if (
+        parent_acl.get("volume_identity") != parsed_plan["volume_identity"]
+        or candidate_acl.get("volume_identity") != parsed_plan["volume_identity"]
+    ):
+        raise RALValidationError(
+            "volume_identity_mismatch", "ACL observations bind another volume"
+        )
     if any(candidate.iterdir()):
         raise RALValidationError(
             "registry_candidate_not_empty", "candidate must be empty"
@@ -579,6 +586,13 @@ def verify_registry_candidate(
         expected_root=str(parsed_plan["candidate_root"]),
         expected_owner_sid=owner_sid,
     )
+    if (
+        parent_acl.get("volume_identity") != parsed_plan["volume_identity"]
+        or candidate_acl.get("volume_identity") != parsed_plan["volume_identity"]
+    ):
+        raise RALValidationError(
+            "volume_identity_mismatch", "ACL observations bind another volume"
+        )
     candidate = selected.candidate(parsed_plan)
     if not candidate.is_dir():
         raise RALValidationError(

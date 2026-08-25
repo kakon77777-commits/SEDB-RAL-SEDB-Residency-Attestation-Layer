@@ -114,11 +114,10 @@ def test_existing_final_root_refuses_before_candidate_mutation(tmp_path):
 def test_broad_parent_acl_refuses_before_candidate_mutation(tmp_path):
     storage, plan, authority, parent_acl, candidate_acl = ready_storage(tmp_path)
     parent_acl["forbidden_write_sids"] = ["S-1-5-11"]
-    from sedb_ral.registry_root_contracts import bind_document_digest
+    from sedb_ral.registry_root_contracts import bind_registry_acl_fingerprint
 
-    parent_acl = bind_document_digest(
-        {key: value for key, value in parent_acl.items() if key != "acl_fingerprint"},
-        "acl_fingerprint",
+    parent_acl = bind_registry_acl_fingerprint(
+        {key: value for key, value in parent_acl.items() if key != "acl_fingerprint"}
     )
 
     with pytest.raises(RALValidationError) as caught:
@@ -132,7 +131,7 @@ def test_broad_parent_acl_refuses_before_candidate_mutation(tmp_path):
 
 def test_acl_owner_must_match_the_owner_bound_into_the_plan(tmp_path):
     storage, plan, authority, parent_acl, candidate_acl = ready_storage(tmp_path)
-    from sedb_ral.registry_root_contracts import bind_document_digest
+    from sedb_ral.registry_root_contracts import bind_registry_acl_fingerprint
 
     other_owner = "S-1-5-21-9000-9001-9002-9003"
     changed_acls = []
@@ -146,7 +145,7 @@ def test_acl_owner_must_match_the_owner_bound_into_the_plan(tmp_path):
             "S-1-5-18",
             "S-1-5-32-544",
         ]
-        changed_acls.append(bind_document_digest(changed, "acl_fingerprint"))
+        changed_acls.append(bind_registry_acl_fingerprint(changed))
 
     with pytest.raises(RALValidationError) as caught:
         prepare_registry_candidate(
@@ -158,6 +157,31 @@ def test_acl_owner_must_match_the_owner_bound_into_the_plan(tmp_path):
         )
 
     assert caught.value.code == "registry_acl_owner_mismatch"
+    assert list(storage.candidate(plan).iterdir()) == []
+
+
+def test_acl_volume_identity_must_match_the_plan(tmp_path):
+    storage, plan, authority, parent_acl, candidate_acl = ready_storage(tmp_path)
+    from sedb_ral.registry_root_contracts import bind_registry_acl_fingerprint
+
+    changed_acls = []
+    for observation in (parent_acl, candidate_acl):
+        changed = {
+            key: value for key, value in observation.items() if key != "acl_fingerprint"
+        }
+        changed["volume_identity"] = "volume:other"
+        changed_acls.append(bind_registry_acl_fingerprint(changed))
+
+    with pytest.raises(RALValidationError) as caught:
+        prepare_registry_candidate(
+            plan,
+            authority,
+            changed_acls[0],
+            changed_acls[1],
+            storage=storage,
+        )
+
+    assert caught.value.code == "volume_identity_mismatch"
     assert list(storage.candidate(plan).iterdir()) == []
 
 

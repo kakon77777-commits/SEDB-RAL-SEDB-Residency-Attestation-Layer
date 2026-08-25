@@ -53,6 +53,28 @@ def bind_document_digest(
     return _canonical_object({**material, digest_field: sha256_ref(material)})
 
 
+def _registry_acl_fingerprint_material(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    excluded = {"observed_root", "observed_time_ref", "acl_fingerprint"}
+    return _canonical_object(
+        {key: item for key, item in value.items() if key not in excluded}
+    )
+
+
+def bind_registry_acl_fingerprint(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    if "acl_fingerprint" in value:
+        raise RALValidationError(
+            "digest_field_present",
+            "ACL material must exclude its fingerprint field",
+        )
+    canonical = _canonical_object(value)
+    fingerprint = sha256_ref(_registry_acl_fingerprint_material(canonical))
+    return _canonical_object({**canonical, "acl_fingerprint": fingerprint})
+
+
 def _verify_document_digest(
     value: Mapping[str, object], digest_field: str, error_code: str
 ) -> None:
@@ -140,9 +162,12 @@ class RegistryAclObservation(_CanonicalContract):
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> RegistryAclObservation:
         canonical = _canonical_object(value)
-        _verify_document_digest(
-            canonical, "acl_fingerprint", "registry_acl_digest_mismatch"
-        )
+        actual = canonical.get("acl_fingerprint")
+        expected = sha256_ref(_registry_acl_fingerprint_material(canonical))
+        if actual != expected:
+            raise RALValidationError(
+                "registry_acl_digest_mismatch", "ACL policy fingerprint differs"
+            )
         validate_contract("registry-acl-observation.schema.json", canonical)
         return cls(canonical_bytes(canonical))
 

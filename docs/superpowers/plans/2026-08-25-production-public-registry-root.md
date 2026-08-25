@@ -245,6 +245,11 @@ observation containing owner SID, SDDL digest, filesystem/volume identity,
 reparse state, and required/forbidden evaluations. Never emit unrelated account
 inventory to Git evidence.
 
+The ACL policy fingerprint excludes observed path/time so candidate and final
+observations match after a no-byte ACL-preserving rename; both path and time are
+still validated as separate fields. Failure emits a sanitized typed receipt and
+never performs cleanup.
+
 ### Step 4: Implement the one-shot initializer
 
 The wrapper validates exact paths and authority/plan digests, creates and protects
