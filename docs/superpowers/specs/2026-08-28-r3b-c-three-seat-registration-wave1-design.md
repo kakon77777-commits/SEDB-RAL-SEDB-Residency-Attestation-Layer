@@ -442,7 +442,8 @@ For each slot:
 
 1. rebuild and validate the full candidate event chain in isolated staging;
 2. verify the exact expected external head immediately before append;
-3. append the application atomically through the existing registrar Core;
+3. append through the existing registrar Core using the exact staged event
+   order and expected head;
 4. obtain the new exact ledger head and commit receipt;
 5. rebuild and validate application/resident/instance/address/binding views;
 6. verify production counts and zero private/network/external effects; and
@@ -476,6 +477,12 @@ execute. It must not be rewritten as no append or as accepted.
 Slot 2 must use slot 1's accepted head. Slot 3 must use slot 2's accepted head.
 A stale expected head or concurrent winner stops before append.
 
+The plan/decision is validated as a complete unit before append, but the
+existing file-ledger Core publishes the multi-event chain sequentially; this
+design does not relabel it as a filesystem transaction. Crash evidence
+distinguishes a durable completed receipt, a complete canonical event chain
+whose outer Wave receipt is absent, and a mid-chain partial prefix.
+
 ## 11. Failure and recovery semantics
 
 The wave is fail-closed but not atomic across applicants.
@@ -491,9 +498,9 @@ Already accepted facts are never deleted or rolled back to make the wave look
 atomic. Correction, withdrawal, address suspension, authority revocation, or
 future opt-out uses append-only events under separate authority.
 
-Crash during candidate staging changes no canonical data. Crash after a
-successful append is resolved by replay/readback, never by blindly appending
-the same resident again.
+Crash during candidate staging changes no canonical data. A retry after the
+complete event chain and durable existing Core commit receipt returns that
+verified receipt idempotently; it never appends the resident again.
 
 If the complete canonical event prefix exists but the outer slot receipt was
 not durably observed, status is `recovery_required`. The system must not claim
@@ -502,6 +509,15 @@ the missing receipt already existed. A separately principal-authorized
 pre/post heads, application digest, original execution authorization, current
 checkpoint/readback and the newly reconstructed outer evidence. Forged or
 partial prefixes remain recovery failures.
+
+A mid-chain prefix that lacks one or more events from the exact staged chain is
+`registrar_partial_transaction`, not accepted and not equivalent to the
+complete-prefix outer-receipt case. No automatic retry or later slot may run.
+Separately authorized recovery must verify the exact original staged chain,
+current prefix and unchanged inputs before either completing the exact suffix
+or selecting an append-only correction path. Wave 1 stops until that recovery
+receives its own design/plan/authorization; it never fabricates an accepted
+receipt from the partial prefix.
 
 Wave policy states are:
 
@@ -562,7 +578,7 @@ and the combined three-resident collision scan pass.
 | W1-003 | opt-in false before slot 1 | exact three-seat wave stops; zero append |
 | W1-004 | task/turn/output mismatch | preparation refused |
 | W1-005 | three exact distinct thread locators | no address collision |
-| W1-006 | duplicate/case-confusable locator | conflicting; no tie-break |
+| W1-006 | noncanonical uppercase/case-confusable locator | locator invalid before collision evaluation |
 | W1-007 | retained prepare replay | byte/digest identical |
 | W1-008 | changed prepared bytes | new digest; old approval insufficient |
 | W1-009 | three separate digest approvals | each authority independently valid |
@@ -574,7 +590,7 @@ and the combined three-resident collision scan pass.
 | W1-015 | slot 3 against H2 | one append, head H3 |
 | W1-016 | repeated admitted application | existing receipt; no duplicate resident |
 | W1-017 | injected crash before append | canonical bytes unchanged |
-| W1-018 | injected crash after append | replay finds existing receipt |
+| W1-018 | retry after complete event chain plus durable Core receipt | replay returns existing receipt; no duplicate append |
 | W1-019 | B6A after slot 1 | slot 1 resolved; slots 2/3 unresolved |
 | W1-020 | B6A after slot 2 | slots 1/2 resolved; slot 3 unresolved |
 | W1-021 | B6A after slot 3 | three exact independent resolutions |
@@ -586,7 +602,7 @@ and the combined three-resident collision scan pass.
 | W1-027 | slot 3 against current H1 without slot-2 receipt | order violation; no append |
 | W1-028 | changed/reordered/duplicate slot | wave-plan digest/schema refusal |
 | W1-029 | missing/substituted predecessor receipt | no append |
-| W1-030 | forged/assistant/relayed principal approval | unverified; no preparation authority |
+| W1-030 | forged/assistant/relayed principal approval | approval unverified; no policy eligibility, plan, or execution; role=user positive retained |
 | W1-031 | approval A used for application B | exact-digest refusal |
 | W1-032 | application approval without JIT execution authorization | no append |
 | W1-033 | registrar self-approval evidence | refused |
@@ -605,6 +621,7 @@ and the combined three-resident collision scan pass.
 | W1-046 | one failed candidate before policy activation | wave policy not activatable; zero append |
 | W1-047 | B6A reuses claim-time turn/item | stale_readback_observation |
 | W1-048 | fresh B6A observation bound to rebuilt H1/H2/H3 view | current per-slot resolution |
+| W1-049 | crash after a strict prefix but before final event | registrar_partial_transaction; wave stopped; no outer accepted receipt |
 
 Every negative population has an executed positive control that proves the
 named gate rather than a dead runtime.
