@@ -16,8 +16,11 @@ from sedb_ral.registration_wave_context import (
     WaveExecutionMode,
 )
 from sedb_ral.registration_wave_intake import (
+    RawApplicantItemSnapshot,
+    VerifiedPreparedCandidate,
     compatibility_host_observation_v01,
     prepare_wave_candidate,
+    validate_candidate_identity_registry,
     validate_exact_three_candidates,
     verify_applicant_item_evidence,
     verify_prepared_candidate_bindings,
@@ -66,7 +69,32 @@ def claim(index: int = 1, **changes) -> dict[str, object]:
     return value
 
 
-def item(index: int = 1, **changes) -> dict[str, object]:
+def raw_item(
+    index: int = 1, claim_value: dict[str, object] | None = None
+) -> RawApplicantItemSnapshot:
+    selected_claim = claim(index) if claim_value is None else claim_value
+    return RawApplicantItemSnapshot(
+        provider="openai",
+        adapter_kind="codex_app_task_tool",
+        native_thread_id=THREADS[index - 1],
+        native_turn_id=f"turn:slot-{index}",
+        source_item_role="assistant",
+        source_item_kind="agentMessage",
+        source_item_status="completed",
+        source_item_parent_thread_id=THREADS[index - 1],
+        source_item_parent_turn_id=f"turn:slot-{index}",
+        applicant_item_ref=f"item:slot-{index}",
+        content_bytes=canonical_bytes(selected_claim),
+    )
+
+
+def item(
+    index: int = 1,
+    *,
+    claim_value: dict[str, object] | None = None,
+    **changes,
+) -> dict[str, object]:
+    selected_claim = claim(index) if claim_value is None else claim_value
     value = {
         "schema": "sedb-ral.registration-applicant-item-evidence/0.1",
         "item_evidence_id": f"item-evidence:slot-{index}",
@@ -80,8 +108,8 @@ def item(index: int = 1, **changes) -> dict[str, object]:
         "source_item_parent_thread_id": THREADS[index - 1],
         "source_item_parent_turn_id": f"turn:slot-{index}",
         "applicant_item_ref": f"item:slot-{index}",
-        "canonical_claim_digest": canonical_claim_digest(claim(index)),
-        "raw_item_evidence_digest": sha256_ref({"raw-item": index}),
+        "canonical_claim_digest": canonical_claim_digest(selected_claim),
+        "raw_item_evidence_digest": raw_item(index, selected_claim).evidence_digest,
         "capture_status": "host_observed",
         "observed_origin": "host:codex-app",
         "observed_at_ref": f"ctcl:instant:slot-{index}",
@@ -97,8 +125,17 @@ def item(index: int = 1, **changes) -> dict[str, object]:
     return seal(value, "item_evidence_digest")
 
 
-def host(index: int = 1, **changes) -> dict[str, object]:
-    evidence = item(index)
+def host(
+    index: int = 1,
+    *,
+    claim_value: dict[str, object] | None = None,
+    item_value: dict[str, object] | None = None,
+    **changes,
+) -> dict[str, object]:
+    selected_claim = claim(index) if claim_value is None else claim_value
+    evidence = (
+        item(index, claim_value=selected_claim) if item_value is None else item_value
+    )
     value = {
         "schema": "sedb-ral.registration-host-observation/0.2",
         "observation_id": f"observation:slot-{index}",
@@ -114,7 +151,7 @@ def host(index: int = 1, **changes) -> dict[str, object]:
         "applicant_item_ref": f"item:slot-{index}",
         "applicant_item_evidence_ref": f"item-evidence:slot-{index}",
         "applicant_item_evidence_digest": evidence["item_evidence_digest"],
-        "canonical_claim_digest": canonical_claim_digest(claim(index)),
+        "canonical_claim_digest": canonical_claim_digest(selected_claim),
         "not_claimed": ["pre_turn_output_enforcement", "verified_identity"],
     }
     value.update(changes)
@@ -189,7 +226,9 @@ def test_non_agent_items_cannot_prepare_or_allocate_ids(
     )
 
     with pytest.raises(RALValidationError, match="applicant_item_role_invalid"):
-        prepare_wave_candidate(context(tmp_path), claim(), changed, host(), factory)
+        prepare_wave_candidate(
+            context(tmp_path), claim(), changed, host(), raw_item(), factory
+        )
 
     assert factory.calls == 0
 
@@ -210,7 +249,9 @@ def test_continuity_or_opt_out_stops_before_id_assignment(tmp_path, claim_change
         RALValidationError,
         match="continuity_evidence_required|applicant_opt_out",
     ):
-        prepare_wave_candidate(context(tmp_path), changed, item(), host(), factory)
+        prepare_wave_candidate(
+            context(tmp_path), changed, item(), host(), raw_item(), factory
+        )
 
     assert factory.calls == 0
 
@@ -219,9 +260,55 @@ def test_missing_agent_message_stops_before_id_assignment(tmp_path):
     factory = CountingIdsFactory(ids())
 
     with pytest.raises(RALValidationError, match="applicant_output_unavailable"):
-        verify_applicant_item_evidence(claim(), None, host())
+        verify_applicant_item_evidence(claim(), None, host(), raw_item())
     with pytest.raises(RALValidationError, match="applicant_output_unavailable"):
-        prepare_wave_candidate(context(tmp_path), claim(), None, host(), factory)
+        prepare_wave_candidate(
+            context(tmp_path), claim(), None, host(), raw_item(), factory
+        )
+
+    assert factory.calls == 0
+
+
+def test_wave_claim_profile_requires_all_public_only_nonclaims_before_ids(tmp_path):
+    selected_claim = claim(not_claimed=["verified_identity"])
+    selected_raw = raw_item(claim_value=selected_claim)
+    selected_item = item(claim_value=selected_claim)
+    selected_host = host(claim_value=selected_claim, item_value=selected_item)
+    factory = CountingIdsFactory(ids())
+
+    with pytest.raises(RALValidationError, match="wave_claim_profile_invalid"):
+        prepare_wave_candidate(
+            context(tmp_path),
+            selected_claim,
+            selected_item,
+            selected_host,
+            selected_raw,
+            factory,
+        )
+
+    assert factory.calls == 0
+
+
+def test_resealed_fabricated_raw_item_digest_cannot_become_verified(tmp_path):
+    selected_claim = claim()
+    selected_raw = raw_item(claim_value=selected_claim)
+    selected_item = item(claim_value=selected_claim)
+    selected_item["raw_item_evidence_digest"] = sha256_ref({"fabricated": True})
+    selected_item = seal(selected_item, "item_evidence_digest")
+    selected_host = host(claim_value=selected_claim, item_value=selected_item)
+    factory = CountingIdsFactory(ids())
+
+    with pytest.raises(
+        RALValidationError, match="applicant_raw_item_digest_mismatch"
+    ):
+        prepare_wave_candidate(
+            context(tmp_path),
+            selected_claim,
+            selected_item,
+            selected_host,
+            selected_raw,
+            factory,
+        )
 
     assert factory.calls == 0
 
@@ -244,7 +331,7 @@ def test_swapped_host_item_or_claim_binding_stops_before_id_assignment(
 
     with pytest.raises(RALValidationError, match="applicant_item_binding_mismatch"):
         prepare_wave_candidate(
-            context(tmp_path), claim(), item(), changed_host, factory
+            context(tmp_path), claim(), item(), changed_host, raw_item(), factory
         )
 
     assert factory.calls == 0
@@ -257,18 +344,27 @@ def test_valid_preparation_allocates_once_and_binds_durable_wrapper(tmp_path):
     factory = CountingIdsFactory(ids())
 
     candidate = prepare_wave_candidate(
-        context(tmp_path), selected_claim, selected_item, selected_host, factory
+        context(tmp_path),
+        selected_claim,
+        selected_item,
+        selected_host,
+        raw_item(),
+        factory,
     )
     compatibility = compatibility_host_observation_v01(selected_host)
 
     assert factory.calls == 1
+    assert isinstance(candidate, VerifiedPreparedCandidate)
     assert candidate.canonical_claim_digest == canonical_claim_digest(selected_claim)
     assert candidate.item_evidence_digest == selected_item["item_evidence_digest"]
     assert candidate.host_v02_digest == selected_host["observation_digest"]
     assert candidate.compatibility_host_v01_digest == sha256_ref(compatibility)
     assert candidate.application_ref == ids().application_id
     assert candidate.canonical_locator == THREADS[0]
-    assert RegistrationWavePreparedCandidate.from_dict(candidate.to_dict()) == candidate
+    assert (
+        RegistrationWavePreparedCandidate.from_dict(candidate.to_dict())
+        == candidate.candidate
+    )
 
 
 def test_restart_verifier_rejects_resealed_swapped_evidence(tmp_path):
@@ -280,6 +376,7 @@ def test_restart_verifier_rejects_resealed_swapped_evidence(tmp_path):
         selected_claim,
         selected_item,
         selected_host,
+        raw_item(),
         CountingIdsFactory(ids()),
     )
     changed = candidate.to_dict()
@@ -289,12 +386,25 @@ def test_restart_verifier_rejects_resealed_swapped_evidence(tmp_path):
     with pytest.raises(RALValidationError, match="wave_candidate_evidence_mismatch"):
         verify_prepared_candidate_bindings(
             RegistrationWavePreparedCandidate.from_dict(changed),
-            claim=selected_claim,
-            item=selected_item,
-            host_v02=selected_host,
-            compatibility_host_v01=compatibility_host_observation_v01(selected_host),
-            prepared=None,
+            verified_item=candidate.verified_item,
+            compatibility_host_v01=candidate.compatibility_host_v01,
+            prepared=candidate.prepared,
         )
+
+
+def test_verified_candidate_revalidates_mutable_prepared_body(tmp_path):
+    verified = prepare_wave_candidate(
+        context(tmp_path),
+        claim(),
+        item(),
+        host(),
+        raw_item(),
+        CountingIdsFactory(ids()),
+    )
+    verified.prepared.application["display_label"] = "Tampered"
+
+    with pytest.raises(RALValidationError, match="prepared_application_digest_mismatch"):
+        verified.verify()
 
 
 def test_exact_three_candidates_preserve_order_and_reject_duplicate_locator(tmp_path):
@@ -304,6 +414,7 @@ def test_exact_three_candidates_preserve_order_and_reject_duplicate_locator(tmp_
             claim(index),
             item(index),
             host(index),
+            raw_item(index),
             CountingIdsFactory(ids(index)),
         )
         for index in (1, 2, 3)
@@ -311,13 +422,48 @@ def test_exact_three_candidates_preserve_order_and_reject_duplicate_locator(tmp_
 
     assert validate_exact_three_candidates(candidates) == candidates
 
-    duplicate = candidates[2].to_dict()
-    duplicate["canonical_locator"] = candidates[1].canonical_locator
-    duplicate = RegistrationWavePreparedCandidate.from_dict(
-        seal(duplicate, "candidate_digest")
-    )
+    with pytest.raises(RALValidationError, match="verified_candidate_required"):
+        validate_exact_three_candidates(tuple(value.candidate for value in candidates))
+
     with pytest.raises(RALValidationError, match="wave_exact_three_required"):
-        validate_exact_three_candidates((candidates[0], candidates[1], duplicate))
+        validate_exact_three_candidates((candidates[0], candidates[1], candidates[1]))
+
+
+@pytest.mark.parametrize(
+    "ref_field",
+    (
+        "candidate_id",
+        "claim_ref",
+        "item_evidence_ref",
+        "host_v02_ref",
+        "compatibility_host_v01_ref",
+        "prepared_registration_ref",
+        "application_ref",
+    ),
+)
+def test_candidate_identity_registry_rejects_same_ref_with_different_digest(
+    tmp_path, ref_field
+):
+    verified = tuple(
+        prepare_wave_candidate(
+            context(tmp_path / f"identity-{index}"),
+            claim(index),
+            item(index),
+            host(index),
+            raw_item(index),
+            CountingIdsFactory(ids(index)),
+        )
+        for index in (1, 2, 3)
+    )
+    plain = [value.candidate for value in verified]
+    changed = plain[2].to_dict()
+    changed[ref_field] = plain[1].to_dict()[ref_field]
+    plain[2] = RegistrationWavePreparedCandidate.from_dict(
+        seal(changed, "candidate_digest")
+    )
+
+    with pytest.raises(RALValidationError, match="wave_candidate_identity_conflict"):
+        validate_candidate_identity_registry(tuple(plain))
 
 
 def test_canonical_claim_digest_validates_without_mutating_input():

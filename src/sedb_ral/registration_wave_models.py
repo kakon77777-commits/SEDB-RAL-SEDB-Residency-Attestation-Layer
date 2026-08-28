@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Self
 
@@ -50,6 +50,29 @@ def _require_pair(
 def _require_canonical_thread(value: object, code: str) -> None:
     if not isinstance(value, str) or _CANONICAL_THREAD.fullmatch(value) is None:
         raise RALValidationError(code, "codex_thread locator is not canonical")
+
+
+def verify_ref_digest_registry(
+    records: Sequence[Mapping[str, object]],
+    pairs: Sequence[tuple[str, str, str]],
+    *,
+    code: str,
+) -> None:
+    seen_refs: dict[str, tuple[str, str]] = {}
+    seen_digests: dict[str, tuple[str, str]] = {}
+    for record in records:
+        for kind, ref_field, digest_field in pairs:
+            ref = record[ref_field]
+            digest = record[digest_field]
+            if not isinstance(ref, str) or not ref or not isinstance(digest, str) or not digest:
+                raise RALValidationError(code, f"{kind} identity pair is invalid")
+            if ref in seen_refs or digest in seen_digests:
+                raise RALValidationError(
+                    code,
+                    f"{kind} ref/digest is reused across the identity registry",
+                )
+            seen_refs[ref] = (kind, digest)
+            seen_digests[digest] = (kind, ref)
 
 
 @dataclass(frozen=True)
@@ -213,15 +236,25 @@ class RegistrationWavePlan(_WaveContract):
             )
         for name in (
             "slot_id",
-            "candidate_digest",
-            "application_digest",
-            "host_observation_digest",
         ):
             values = [getattr(slot, name) for slot in slots]
             if len(set(values)) != 3:
                 raise RALValidationError(
                     "wave_slot_binding_duplicate", f"{name} must be distinct"
                 )
+        verify_ref_digest_registry(
+            tuple(slot.to_dict() for slot in slots),
+            (
+                ("candidate", "candidate_ref", "candidate_digest"),
+                ("application", "application_ref", "application_digest"),
+                (
+                    "host_observation",
+                    "host_observation_ref",
+                    "host_observation_digest",
+                ),
+            ),
+            code="wave_slot_binding_duplicate",
+        )
         return parsed
 
 

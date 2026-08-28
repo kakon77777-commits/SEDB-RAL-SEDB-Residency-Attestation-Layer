@@ -107,8 +107,8 @@ def test_callers_cannot_label_production_as_synthetic(tmp_path):
     "target",
     (
         Path(r"D:\AI_RESIDENCE\REGISTRY\SEDB-RAL\future-candidate"),
-        Path(r"D:\AI_RESIDENCE\AI_HOME\00_RESIDENCE\private-candidate"),
-        Path(__file__).parents[1] / ".forbidden-wave-candidate",
+        Path(r"D:\AI_RESIDENCE\AI_HOME\sibling-private-candidate"),
+        Path(r"D:\Ai\work together\SEDB-RAL\__r3bc_main_checkout_candidate__"),
     ),
 )
 def test_mandatory_roots_refuse_without_caller_supplied_boundaries_before_path_io(
@@ -203,6 +203,21 @@ def test_reparse_alias_is_refused_when_supported(tmp_path):
 
     with pytest.raises(RALValidationError, match="synthetic_wave_boundary_refused"):
         context.verify_before_io("prepare", alias)
+
+
+def test_existing_hardlink_inside_target_is_refused_before_domain_effect(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    selected_context = synthetic_context(tmp_path)
+    selected_context.target_root.mkdir()
+    linked = selected_context.target_root / "linked.txt"
+    os.link(outside, linked)
+
+    with pytest.raises(RALValidationError, match="synthetic_wave_boundary_refused"):
+        selected_context.verify_before_io("prepare", selected_context.target_root)
+
+    assert linked.stat().st_nlink == 2
+    assert selected_context.journal.nonzero_dimensions() == ()
 
 
 def test_real_staging_candidate_refuses_temp_root(tmp_path):

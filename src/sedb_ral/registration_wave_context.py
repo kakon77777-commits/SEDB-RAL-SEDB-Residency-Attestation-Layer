@@ -15,12 +15,46 @@ from .registry_root import _reject_alternate_streams
 
 SYNTHETIC_MARKER_NAME = ".sedb-ral-synthetic-wave-fixture.json"
 PRODUCTION_REGISTRY_ROOT = Path(r"D:\AI_RESIDENCE\REGISTRY\SEDB-RAL")
-PRIVATE_RESIDENCE_ROOT = Path(r"D:\AI_RESIDENCE\AI_HOME\00_RESIDENCE")
-REPOSITORY_ROOT = Path(__file__).absolute().parents[2]
+PRIVATE_RESIDENCE_ROOT = Path(r"D:\AI_RESIDENCE\AI_HOME")
+
+
+def _discover_repository_roots() -> tuple[Path, ...]:
+    current = Path(__file__).absolute().parents[2]
+    roots = [current]
+    dot_git = current / ".git"
+    if dot_git.is_file():
+        try:
+            line = dot_git.read_text(encoding="utf-8").strip()
+            if line.startswith("gitdir: "):
+                git_dir = (current / line.removeprefix("gitdir: ")).resolve()
+                common_ref = git_dir / "commondir"
+                common = (
+                    (git_dir / common_ref.read_text(encoding="utf-8").strip()).resolve()
+                    if common_ref.is_file()
+                    else git_dir
+                )
+                roots.append(common.parent)
+        except (OSError, UnicodeError):
+            pass
+    elif dot_git.is_dir():
+        roots.append(current)
+    for parent in current.parents:
+        if parent.name.casefold() == ".worktrees":
+            roots.append(parent.parent)
+            break
+    unique: dict[str, Path] = {}
+    for root in roots:
+        absolute = Path(os.path.abspath(root))
+        key = ntpath.normcase(ntpath.normpath(str(absolute)))
+        unique[key] = absolute
+    return tuple(unique.values())
+
+
+REPOSITORY_ROOTS = _discover_repository_roots()
 _MANDATORY_FORBIDDEN_ROOTS = (
     PRODUCTION_REGISTRY_ROOT,
     PRIVATE_RESIDENCE_ROOT,
-    REPOSITORY_ROOT,
+    *REPOSITORY_ROOTS,
 )
 _DRIVE = re.compile(r"^[A-Za-z]:")
 _ALLOWED_EFFECTS = (
@@ -139,6 +173,37 @@ def _existing_path_chain(path: Path) -> Iterable[Path]:
         if current.parent == current:
             break
         current = current.parent
+
+
+def _reject_existing_tree_hazards(root: Path) -> None:
+    if not root.exists():
+        return
+    files: list[Path] = []
+    if root.is_file():
+        files.append(root)
+    else:
+        for current, names, filenames in os.walk(root, followlinks=False):
+            current_path = Path(current)
+            if _is_reparse(current_path):
+                raise RALValidationError(
+                    "synthetic_wave_boundary_refused",
+                    "synthetic target contains a reparse point",
+                )
+            for name in names:
+                path = current_path / name
+                if _is_reparse(path):
+                    raise RALValidationError(
+                        "synthetic_wave_boundary_refused",
+                        "synthetic target contains a reparse point",
+                    )
+            files.extend(current_path / name for name in filenames)
+    for path in files:
+        if _is_reparse(path) or path.stat().st_nlink != 1:
+            raise RALValidationError(
+                "synthetic_wave_boundary_refused",
+                "synthetic target contains linked file evidence",
+            )
+    _reject_alternate_streams(files)
 
 
 def _context_material(
@@ -270,6 +335,14 @@ class SyntheticWaveExecutionContext:
                 raise RALValidationError(
                     "synthetic_wave_boundary_refused", "target contains reparse point"
                 )
+            git_marker = candidate / ".git"
+            if git_marker.is_file() or git_marker.is_dir():
+                raise RALValidationError(
+                    "synthetic_wave_boundary_refused",
+                    "target is inside a Git checkout or worktree",
+                )
+
+        _reject_existing_tree_hazards(self.target_root)
 
         resolved_root = self.target_root.resolve(strict=False)
         resolved_target = target.resolve(strict=False)

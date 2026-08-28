@@ -1,18 +1,70 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .errors import RALValidationError
+from .ledger import read_verified_events
+from .operations.models import OperationReceipt
+from .registrar import RegistrarCommitReceipt
 from .registration_wave_intake import validate_exact_three_candidates
 from .registration_wave_models import (
+    PrincipalApplicationApproval,
     RegistrationWavePlan,
     RegistrationWavePolicy,
     RegistrationWavePreparedCandidate,
+    SlotExecutionAuthorization,
     WaveSlot,
     WaveSlotReceipt,
     WaveSlotRequest,
 )
+
+_PREFIX_CAPABILITY_TOKEN = object()
+
+
+@dataclass(frozen=True)
+class WaveReceiptEvidence:
+    receipt: WaveSlotReceipt
+    slot_request: WaveSlotRequest
+    execution_authorization: SlotExecutionAuthorization
+    application_approval: PrincipalApplicationApproval
+    registrar_commit_receipt: RegistrarCommitReceipt
+    operation_receipt: OperationReceipt
+    ledger_root: Path
+
+
+@dataclass(frozen=True)
+class VerifiedWaveReceiptPrefix:
+    plan_digest: str
+    evidences: tuple[WaveReceiptEvidence, ...]
+    final_head: str | None
+    ledger_event_count: int
+    verification_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _PREFIX_CAPABILITY_TOKEN:
+            raise RALValidationError(
+                "verified_receipt_prefix_required",
+                "receipt prefix capability was not issued by the verifier",
+            )
+
+    def verify(self, plan: RegistrationWavePlan) -> None:
+        material, final_head, event_count = _verify_evidence_sequence(
+            plan, self.evidences
+        )
+        if (
+            self.plan_digest != plan.digest
+            or self.final_head != final_head
+            or self.ledger_event_count != event_count
+            or self.verification_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "verified_receipt_prefix_required",
+                "verified receipt prefix is stale or mismatched",
+            )
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -165,56 +217,216 @@ def _event_pair(value: Mapping[str, object]) -> tuple[str, str]:
     return str(canonical["event_ref"]), str(canonical["event_digest"])
 
 
-def _verified_receipt_prefix(
+def _verify_evidence_sequence(
     plan: RegistrationWavePlan,
-    slot_receipts: Sequence[Mapping[str, object] | WaveSlotReceipt],
-    events: Sequence[Mapping[str, object]],
-) -> tuple[WaveSlotReceipt, ...]:
-    parsed = tuple(_parse_receipt(value) for value in slot_receipts)
-    observed_events = tuple(_event_pair(value) for value in events)
-    expected_events: list[tuple[str, str]] = []
+    evidences: Sequence[WaveReceiptEvidence],
+) -> tuple[dict[str, object], str | None, int]:
     previous_head: str | None = None
-    for index, receipt in enumerate(parsed, start=1):
+    event_count = 0
+    evidence_digests: list[dict[str, object]] = []
+    for index, evidence in enumerate(evidences, start=1):
         if index > 3:
             raise RALValidationError(
                 "wave_receipt_prefix_invalid", "receipt prefix exceeds three slots"
             )
+        if not isinstance(evidence, WaveReceiptEvidence):
+            raise RALValidationError(
+                "verified_receipt_prefix_required",
+                "raw receipt mappings are not verified evidence",
+            )
+        receipt = _parse_receipt(evidence.receipt)
+        request = WaveSlotRequest.from_dict(evidence.slot_request.to_dict())
+        authorization = SlotExecutionAuthorization.from_dict(
+            evidence.execution_authorization.to_dict()
+        )
+        approval = PrincipalApplicationApproval.from_dict(
+            evidence.application_approval.to_dict()
+        )
+        operation = OperationReceipt.from_dict(evidence.operation_receipt.to_dict())
+        operation_value = operation.to_dict()
+        core = evidence.registrar_commit_receipt
+        if not isinstance(core, RegistrarCommitReceipt):
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch",
+                "registrar commit receipt type differs",
+            )
         slot = plan.ordered_slots[index - 1]
+        expected_plan_ref = _plan_ref(plan)
         if (
-            receipt.wave_plan_ref != _plan_ref(plan)
+            request.wave_plan_ref != expected_plan_ref
+            or request.wave_plan_digest != plan.digest
+            or request.slot_id != slot["slot_id"]
+            or request.slot_index != index
+            or request.candidate_ref != slot["candidate_ref"]
+            or request.candidate_digest != slot["candidate_digest"]
+            or request.application_ref != slot["application_ref"]
+            or request.application_digest != slot["application_digest"]
+            or request.policy_ref != plan.policy_ref
+            or request.policy_digest != plan.policy_digest
+            or request.checkpoint_ref != plan.checkpoint_ref
+            or request.checkpoint_digest != plan.checkpoint_digest
+            or request.registry_generation_digest != plan.registry_generation_digest
+            or request.registry_control_digest != plan.registry_control_digest
+        ):
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch",
+                "slot request does not bind the plan slot",
+            )
+        expected_predecessor = None if index == 1 else evidences[index - 2].receipt
+        if (
+            request.predecessor_receipt_ref
+            != (None if expected_predecessor is None else expected_predecessor.receipt_id)
+            or request.predecessor_receipt_digest
+            != (None if expected_predecessor is None else expected_predecessor.digest)
+            or request.expected_ledger_state["expected_ledger_head"] != previous_head
+            or request.expected_ledger_state["ledger_event_count"] != event_count
+        ):
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch",
+                "slot request predecessor state differs",
+            )
+        if (
+            approval.application_ref != slot["application_ref"]
+            or approval.application_digest != slot["application_digest"]
+            or approval.status != "active"
+            or authorization.wave_plan_ref != expected_plan_ref
+            or authorization.wave_plan_digest != plan.digest
+            or authorization.slot_id != slot["slot_id"]
+            or authorization.slot_index != index
+            or authorization.operation_request_ref != request.request_id
+            or authorization.operation_request_digest != request.digest
+            or authorization.application_approval_ref != approval.approval_id
+            or authorization.application_approval_digest != approval.digest
+            or authorization.policy_ref != plan.policy_ref
+            or authorization.policy_digest != plan.policy_digest
+            or authorization.checkpoint_ref != plan.checkpoint_ref
+            or authorization.checkpoint_digest != plan.checkpoint_digest
+            or authorization.expected_ledger_head != previous_head
+            or authorization.registry_control_digest != plan.registry_control_digest
+            or authorization.status != "active"
+        ):
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch",
+                "approval or execution authorization differs",
+            )
+        core_digest = sha256_ref(core.to_dict())
+        if (
+            core.application_digest != slot["application_digest"]
+            or core.source_head != previous_head
+            or core.final_head != receipt.post_head
+            or not core.committed
+            or operation_value["request_digest"] != request.digest
+            or operation_value["policy_digest"] != plan.policy_digest
+            or operation_value["pre_head"] != previous_head
+            or operation_value["post_head"] != receipt.post_head
+            or operation_value["outcome"] != "complete"
+            or operation_value["registrar_receipt_ref"]
+            != receipt.commit_receipt_ref
+            or operation_value["registrar_receipt_digest"] != core_digest
+            or operation_value["error_codes"]
+            or receipt.commit_receipt_digest != core_digest
+            or receipt.operation_receipt_ref
+            != f"registrar-operation-receipt:{operation_value['operation_id']}"
+            or receipt.operation_receipt_digest != operation.digest
+        ):
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch",
+                "Core or operation receipt bindings differ",
+            )
+        events = read_verified_events(Path(evidence.ledger_root), receipt.post_head)
+        tail_count = len(core.event_ids)
+        if tail_count < 1 or len(events) < tail_count:
+            raise RALValidationError(
+                "wave_receipt_evidence_mismatch", "verified event suffix is absent"
+            )
+        tail = events[-tail_count:]
+        observed_event_ids = tuple(str(value["event_id"]) for value in tail)
+        observed_pairs = tuple(
+            (str(value["event_id"]), sha256_ref(value)) for value in tail
+        )
+        receipt_pairs = tuple(_event_pair(value) for value in receipt.appended_events)
+        if (
+            observed_event_ids != core.event_ids
+            or receipt_pairs != observed_pairs
+            or receipt.event_count_delta != tail_count
+            or receipt.wave_plan_ref != expected_plan_ref
             or receipt.wave_plan_digest != plan.digest
             or receipt.slot_id != slot["slot_id"]
             or receipt.slot_index != index
+            or receipt.slot_request_ref != request.request_id
+            or receipt.slot_request_digest != request.digest
+            or receipt.execution_authorization_ref
+            != authorization.execution_authorization_id
+            or receipt.execution_authorization_digest != authorization.digest
+            or receipt.application_approval_ref != approval.approval_id
+            or receipt.application_approval_digest != approval.digest
             or receipt.pre_head != previous_head
             or receipt.status not in {"accepted", "recovered"}
             or receipt.limen_b6a_status != "current"
         ):
-            raise RALValidationError(
-                "wave_receipt_prefix_invalid",
-                "receipt does not extend the verified slot prefix",
-            )
-        appended = tuple(_event_pair(value) for value in receipt.appended_events)
-        if receipt.event_count_delta != len(appended):
-            raise RALValidationError(
-                "wave_receipt_prefix_invalid", "event count delta differs"
-            )
-        expected_events.extend(appended)
+                raise RALValidationError(
+                    "wave_receipt_evidence_mismatch",
+                    "receipt does not extend the verified slot prefix",
+                )
+        event_count = len(events)
         previous_head = receipt.post_head
-    if tuple(expected_events) != observed_events:
-        raise RALValidationError(
-            "wave_receipt_prefix_invalid", "event history differs from receipts"
+        evidence_digests.append(
+            {
+                "receipt_digest": receipt.digest,
+                "slot_request_digest": request.digest,
+                "execution_authorization_digest": authorization.digest,
+                "application_approval_digest": approval.digest,
+                "registrar_commit_receipt_digest": core_digest,
+                "operation_receipt_digest": operation.digest,
+                "ledger_head": receipt.post_head,
+                "ledger_event_count": event_count,
+            }
         )
-    return parsed
+    return (
+        {
+            "plan_digest": plan.digest,
+            "evidence": evidence_digests,
+            "final_head": previous_head,
+            "ledger_event_count": event_count,
+        },
+        previous_head,
+        event_count,
+    )
+
+
+def verify_wave_receipt_prefix(
+    plan: Mapping[str, object] | RegistrationWavePlan,
+    evidences: Sequence[WaveReceiptEvidence],
+) -> VerifiedWaveReceiptPrefix:
+    parsed_plan = _parse_plan(plan)
+    material, final_head, event_count = _verify_evidence_sequence(
+        parsed_plan, evidences
+    )
+    return VerifiedWaveReceiptPrefix(
+        plan_digest=parsed_plan.digest,
+        evidences=tuple(evidences),
+        final_head=final_head,
+        ledger_event_count=event_count,
+        verification_digest=sha256_ref(material),
+        _token=_PREFIX_CAPABILITY_TOKEN,
+    )
 
 
 def derive_next_slot(
     plan: Mapping[str, object] | RegistrationWavePlan,
-    slot_receipts: Sequence[Mapping[str, object] | WaveSlotReceipt],
-    events: Sequence[Mapping[str, object]],
+    verified_prefix: object,
+    legacy_events: object | None = None,
 ) -> WaveSlot | None:
     parsed_plan = _parse_plan(plan)
-    verified = _verified_receipt_prefix(parsed_plan, slot_receipts, events)
-    index = len(verified) + 1
+    if legacy_events is not None or not isinstance(
+        verified_prefix, VerifiedWaveReceiptPrefix
+    ):
+        raise RALValidationError(
+            "verified_receipt_prefix_required",
+            "raw receipt/event values cannot advance the wave",
+        )
+    verified_prefix.verify(parsed_plan)
+    index = len(verified_prefix.evidences) + 1
     if index == 4:
         return None
     return WaveSlot.from_dict(parsed_plan.ordered_slots[index - 1])
@@ -252,32 +464,48 @@ def _validate_ledger_state(value: Mapping[str, object]) -> dict[str, object]:
 def build_slot_request(
     plan: Mapping[str, object] | RegistrationWavePlan,
     slot_index: int,
-    predecessor: Mapping[str, object] | WaveSlotReceipt | None,
+    verified_prefix: object,
     ledger_state: Mapping[str, object],
 ) -> WaveSlotRequest:
     parsed_plan = _parse_plan(plan)
     state = _validate_ledger_state(ledger_state)
+    if not isinstance(verified_prefix, VerifiedWaveReceiptPrefix):
+        raise RALValidationError(
+            "verified_receipt_prefix_required",
+            "slot requests require a verified receipt prefix",
+        )
+    verified_prefix.verify(parsed_plan)
     if slot_index not in (1, 2, 3):
         raise RALValidationError(
             "wave_slot_index_invalid", "slot index must be 1, 2, or 3"
         )
-    parsed_predecessor = None if predecessor is None else _parse_receipt(predecessor)
+    expected_prefix_length = slot_index - 1
+    if len(verified_prefix.evidences) != expected_prefix_length:
+        raise RALValidationError(
+            "wave_predecessor_missing",
+            "verified prefix does not end immediately before the requested slot",
+        )
+    parsed_predecessor = (
+        None
+        if not verified_prefix.evidences
+        else verified_prefix.evidences[-1].receipt
+    )
     if slot_index == 1:
-        if parsed_predecessor is not None or state != parsed_plan.initial_ledger_state:
+        if (
+            parsed_predecessor is not None
+            or state != parsed_plan.initial_ledger_state
+            or verified_prefix.final_head is not None
+            or verified_prefix.ledger_event_count != 0
+        ):
             raise RALValidationError(
                 "wave_ledger_state_invalid", "slot 1 requires exact GENESIS state"
             )
     else:
-        expected_slot = parsed_plan.ordered_slots[slot_index - 2]
         if (
             parsed_predecessor is None
-            or parsed_predecessor.wave_plan_ref != _plan_ref(parsed_plan)
-            or parsed_predecessor.wave_plan_digest != parsed_plan.digest
-            or parsed_predecessor.slot_index != slot_index - 1
-            or parsed_predecessor.slot_id != expected_slot["slot_id"]
-            or parsed_predecessor.status not in {"accepted", "recovered"}
-            or parsed_predecessor.limen_b6a_status != "current"
-            or parsed_predecessor.post_head != state["expected_ledger_head"]
+            or verified_prefix.final_head != state["expected_ledger_head"]
+            or verified_prefix.ledger_event_count
+            != state["ledger_event_count"]
         ):
             raise RALValidationError(
                 "wave_predecessor_missing",

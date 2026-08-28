@@ -780,6 +780,20 @@ def test_wave_plan_requires_three_contiguous_equal_standing_slots(mutation):
         RegistrationWavePlan.from_dict(value)
 
 
+@pytest.mark.parametrize(
+    "ref_field",
+    ("candidate_ref", "application_ref", "host_observation_ref"),
+)
+def test_wave_plan_rejects_same_ref_with_different_digest(ref_field):
+    value = valid_plan()
+    value.pop("wave_plan_digest")
+    value["ordered_slots"][2][ref_field] = value["ordered_slots"][1][ref_field]
+    value = seal(value, "wave_plan_digest")
+
+    with pytest.raises(RALValidationError, match="wave_slot_binding_duplicate"):
+        RegistrationWavePlan.from_dict(value)
+
+
 def test_synthetic_result_rejects_production_receipt_shape():
     value = valid_slot_receipt()
     value.pop("receipt_digest")
