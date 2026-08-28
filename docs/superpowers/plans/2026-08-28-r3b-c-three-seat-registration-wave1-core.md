@@ -57,9 +57,28 @@ gates.
 
 ## Scope split
 
-This plan modifies SEDB-RAL only. It produces a signed/digested public readback
+This plan modifies SEDB-RAL only. It produces a sealed, digest-bound public readback
 bundle that a later LIMEN B6A plan consumes. It does not modify LIMEN, SOACR,
 Fabric, MSP, ARCP, AI Residence or native provider memory.
+
+## Inline FCAO slice boundaries
+
+No per-task reviewer is dispatched. One implementer executes tasks inline and
+one necessary Twin performs read-only review at each boundary:
+
+```text
+Slice A  Tasks 1-4   contracts, synthetic context, intake wrapper, Wave plan
+         Twin: applicant/context-memory boundary reviewer
+
+Slice B  Tasks 5-9   authority, policy, staging, one-slot engine, recovery
+         Twin: RAL/Registrar domain reviewer
+
+Slice C  Tasks 10-13 RAL bundle, CLI, acceptance, packaging/evidence
+         Twin: one final RAL/portability reviewer
+```
+
+A Slice finding returns to the same inline implementer. Do not spawn a fresh
+reviewer per task and do not infer operational approval from code review.
 
 ---
 
@@ -69,6 +88,7 @@ Fabric, MSP, ARCP, AI Residence or native provider memory.
 - Create: `src/sedb_ral/registration_wave_models.py`
 - Create: `src/sedb_ral/schemas/registration-applicant-item-evidence.schema.json`
 - Create: `src/sedb_ral/schemas/registration-host-observation-v0.2.schema.json`
+- Create: `src/sedb_ral/schemas/registration-wave-prepared-candidate.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-plan.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-policy.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-active-policy-record.schema.json`
@@ -79,6 +99,7 @@ Fabric, MSP, ARCP, AI Residence or native provider memory.
 - Create: `src/sedb_ral/schemas/registration-slot-execution-authorization.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-request.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-receipt.schema.json`
+- Create: `src/sedb_ral/schemas/registration-wave-slot-recovery-authorization.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-recovery-receipt.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-terminal-event.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-readback-bundle.schema.json`
@@ -88,11 +109,13 @@ Fabric, MSP, ARCP, AI Residence or native provider memory.
 - Consumes: `canonical_bytes`, `loads_strict`, `sha256_ref`, `validate_contract`.
 - Produces: strict `_WaveContract` canonical base plus frozen
   `ApplicantItemEvidence`, `WaveHostObservation`, `WaveSlot`,
+  `RegistrationWavePreparedCandidate`,
   `RegistrationWavePlan`, `RegistrationWavePolicy`, `ActiveWavePolicyRecord`,
   `WavePolicyActivationRequest`, `WavePolicyActivationAuthority`,
   `WavePolicyActivationReceipt`,
   `PrincipalApplicationApproval`, `SlotExecutionAuthorization`,
-  `WaveSlotRequest`, `WaveSlotReceipt`, `WaveSlotRecoveryReceipt`,
+  `WaveSlotRequest`, `WaveSlotReceipt`, `WaveSlotRecoveryAuthorization`,
+  `WaveSlotRecoveryReceipt`,
   `WaveTerminalEvent`, `WaveReadbackBundle`; each exposes `from_dict()`,
   `to_dict()`, `sealed()` and `verify()`.
 
@@ -125,6 +148,8 @@ Expected: collection errors because the schemas/models do not exist.
 class WaveSlot:
     slot_id: str
     slot_index: int
+    candidate_ref: str
+    candidate_digest: str
     application_ref: str
     application_digest: str
     host_observation_ref: str
@@ -165,7 +190,95 @@ git commit -m "feat: define R3B-C wave contracts"
 
 ---
 
-### Task 2: Applicant Item Evidence and Wave Preparation Gate
+### Task 2: Non-Bypassable Synthetic Execution Context and Effect Journal
+
+**Files:**
+- Create: `src/sedb_ral/registration_wave_context.py`
+- Test: `tests/test_registration_wave_context.py`
+
+**Interfaces:**
+- Produces `WaveExecutionMode = synthetic_test | real_staging_candidate`,
+  sealed `SyntheticWaveExecutionContext`, and `WaveEffectJournal`.
+- `SyntheticWaveExecutionContext.verify_before_io(operation, target) -> None`
+  is required by every Task 3-12 API before any filesystem/capability read or
+  write.
+- No production execution context is implemented in this plan.
+
+- [ ] **Step 1: Write direct-API root and live-capability REDs**
+
+```python
+@pytest.mark.parametrize("target", [exact_production_root(), production_descendant(), private_root(), repo_root(), junction_alias(), ads_path()])
+def test_synthetic_context_rejects_forbidden_roots_before_io(target, spies):
+    context = synthetic_context(target_root=target, spies=spies)
+    with pytest.raises(RALValidationError, match="synthetic_wave_boundary_refused"):
+        context.verify_before_io("prepare", target)
+    assert spies.reads == 0
+    assert spies.writes == 0
+
+def test_callers_cannot_label_production_as_synthetic(spies):
+    forged = synthetic_context(target_root=exact_production_root(), marker="synthetic")
+    with pytest.raises(RALValidationError, match="synthetic_wave_boundary_refused"):
+        forged.verify_before_io("policy_activate", exact_production_root())
+```
+
+- [ ] **Step 2: Run RED**
+
+Run: `python -m pytest -q tests/test_registration_wave_context.py`
+
+Expected: missing context/effect-journal module.
+
+- [ ] **Step 3: Implement context modes and measured effect journal**
+
+```python
+@dataclass(frozen=True)
+class SyntheticWaveExecutionContext:
+    mode: WaveExecutionMode
+    fixture_root: Path
+    target_root: Path
+    fixture_marker_ref: str
+    fixture_marker_digest: str
+    forbidden_roots: tuple[Path, ...]
+    context_digest: str
+
+@dataclass
+class WaveEffectJournal:
+    fixture_reads: int = 0
+    staging_writes: int = 0
+    production_reads: int = 0
+    production_writes: int = 0
+    private_reads: int = 0
+    private_writes: int = 0
+    network_calls: int = 0
+    provider_calls: int = 0
+    fabric_calls: int = 0
+    mcp_calls: int = 0
+    external_cli_calls: int = 0
+```
+
+`synthetic_test` permits only an explicit disposable root under its sealed test
+sandbox marker. `real_staging_candidate` permits only an explicit ACL-reviewed,
+non-temp, non-Git, non-private staging candidate root and still rejects the
+production registry. Both modes resolve paths and verify containment, links,
+hard links and ADS before the first read/write. Production support requires a
+future separately reviewed adapter, not a boolean or CLI flag.
+
+- [ ] **Step 4: Run context/effect controls**
+
+Run: `python -m pytest -q tests/test_registration_wave_context.py`
+
+Expected: PASS, including injected network/provider/Fabric/private/production
+effects turning the journal nonzero and the gate red.
+
+- [ ] **Step 5: Commit Task 2**
+
+```text
+git add src/sedb_ral/registration_wave_context.py tests/test_registration_wave_context.py
+git commit -m "feat: enforce synthetic Wave execution boundaries"
+```
+
+---
+
+### Task 3: Applicant Item Evidence and Durable Prepared Candidate
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_intake.py`
@@ -175,26 +288,35 @@ git commit -m "feat: define R3B-C wave contracts"
 
 **Interfaces:**
 - Consumes: `PreparedRegistration`, `RegistrationIds`,
-  `prepare_registration()` and Task 1 models.
+  `prepare_registration()`, Task 1 models and a verified Task 2
+  `SyntheticWaveExecutionContext`.
 - Produces:
   `canonical_claim_digest(claim: Mapping[str, object]) -> str`,
   `verify_applicant_item_evidence(claim, item, host) -> None`,
-  `prepare_wave_candidate(claim, item, host, ids) -> PreparedRegistration` and
-  `validate_exact_three_candidates(candidates) -> tuple[PreparedRegistration, ...]`.
+  `prepare_wave_candidate(context, claim, item, host_v02, ids_factory) -> RegistrationWavePreparedCandidate` and
+  `validate_exact_three_candidates(candidates) -> tuple[RegistrationWavePreparedCandidate, ...]`.
 
 - [ ] **Step 1: Write applicant-authorship and continuity REDs**
 
 ```python
 @pytest.mark.parametrize("kind", ["userMessage", "codexDelegation", "reasoning", "toolCall", "commandExecution"])
-def test_non_agent_items_cannot_prepare_even_with_same_claim_bytes(kind):
+def test_non_agent_items_cannot_prepare_or_allocate_ids(kind, counting_ids_factory):
     with pytest.raises(RALValidationError, match="applicant_item_role_invalid"):
-        prepare_wave_candidate(valid_claim(), item(kind=kind), host_v02(kind=kind), ids())
+        prepare_wave_candidate(context(), valid_claim(), item(kind=kind), host_v02(kind=kind), counting_ids_factory)
+    assert counting_ids_factory.calls == 0
 
-def test_continue_and_missing_agent_message_stop_before_id_assignment():
+def test_continue_and_missing_agent_message_stop_before_id_assignment(counting_ids_factory):
     with pytest.raises(RALValidationError, match="continuity_evidence_required"):
-        prepare_wave_candidate(valid_claim(continuity="continue"), item(), host_v02(), ids())
+        prepare_wave_candidate(context(), valid_claim(continuity="continue"), item(), host_v02(), counting_ids_factory)
     with pytest.raises(RALValidationError, match="applicant_output_unavailable"):
         verify_applicant_item_evidence(valid_claim(), unavailable_item(), host_v02())
+    assert counting_ids_factory.calls == 0
+
+def test_prepared_candidate_replays_and_rejects_swapped_item_evidence(tmp_path):
+    candidate = prepare_wave_candidate(context(tmp_path), valid_claim(), item(), host_v02(), ids_factory())
+    assert RegistrationWavePreparedCandidate.from_dict(candidate.to_dict()) == candidate
+    with pytest.raises(RALValidationError, match="wave_candidate_evidence_mismatch"):
+        RegistrationWavePreparedCandidate.from_dict(swap_item_evidence(candidate.to_dict()))
 ```
 
 - [ ] **Step 2: Run RED**
@@ -215,6 +337,27 @@ def verify_applicant_item_evidence(claim, item, host) -> None:
         raise RALValidationError("applicant_item_claim_digest_mismatch", "claim differs from host item")
 ```
 
+After all evidence gates pass, call `ids_factory()` exactly once. Derive a
+closed v0.1 compatibility host observation from v0.2, call the unchanged
+`prepare_registration()`, and return a sealed wrapper containing:
+
+```text
+candidate_id
+claim_ref + canonical_claim_digest
+item_evidence_ref + item_evidence_digest
+host_v02_ref + host_v02_digest
+compatibility_host_v01_ref + compatibility_host_v01_digest
+prepared_registration_ref + prepared_registration_digest
+application_ref + application_digest
+canonical_locator
+not_claimed
+candidate_digest
+```
+
+The wrapper—not bare `PreparedRegistration`—is stored, restarted, placed in a
+Wave slot and bound by the Wave plan. Item/host/compatibility/prepared evidence
+cannot become ephemeral after preparation.
+
 Require three distinct canonical locators and exactly three eligible candidates
 before returning a wave candidate tuple. An opt-out or unavailable slot raises
 `wave_exact_three_required` and produces no prepared Wave plan.
@@ -225,7 +368,7 @@ Run: `python -m pytest -q tests/test_registration_wave_intake.py tests/test_phas
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 2**
+- [ ] **Step 5: Commit Task 3**
 
 ```text
 git add src/sedb_ral/registration.py src/sedb_ral/registration_wave_intake.py tests/test_registration_wave_intake.py
@@ -234,7 +377,7 @@ git commit -m "feat: bind applicants to host-observed output items"
 
 ---
 
-### Task 3: Wave Plan, Slot Ordering and Typed GENESIS
+### Task 4: Wave Plan, Slot Ordering and Typed GENESIS
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_plan.py`
@@ -242,7 +385,7 @@ git commit -m "feat: bind applicants to host-observed output items"
 
 **Interfaces:**
 - Produces:
-  `build_wave_plan(candidates, policy, registry_status, checkpoint) -> RegistrationWavePlan`,
+  `build_wave_plan(candidates: tuple[RegistrationWavePreparedCandidate, ...], policy, registry_status, checkpoint) -> RegistrationWavePlan`,
   `derive_next_slot(plan, slot_receipts, events) -> WaveSlot | None`, and
   `build_slot_request(plan, slot_index, predecessor, ledger_state) -> WaveSlotRequest`.
 
@@ -256,6 +399,11 @@ def test_slot_three_cannot_use_current_h1_without_slot_two_receipt():
 def test_control_digest_is_not_genesis_ledger_head():
     with pytest.raises(RALValidationError, match="wave_ledger_state_invalid"):
         build_slot_request(plan(), 1, predecessor=None, ledger_state={"expected_ledger_head": control_digest()})
+
+def test_changed_or_swapped_candidate_digest_changes_or_refuses_plan():
+    original = build_wave_plan(candidates(), policy(), status(), checkpoint())
+    with pytest.raises(RALValidationError, match="wave_candidate_binding_mismatch"):
+        build_wave_plan(swap_candidate_evidence(candidates()), policy(), status(), checkpoint())
 ```
 
 - [ ] **Step 2: Run RED**
@@ -283,7 +431,7 @@ Run: `python -m pytest -q tests/test_registration_wave_plan.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 3**
+- [ ] **Step 5: Commit Task 4**
 
 ```text
 git add src/sedb_ral/registration_wave_plan.py tests/test_registration_wave_plan.py
@@ -292,7 +440,7 @@ git commit -m "feat: enforce registration wave slot order"
 
 ---
 
-### Task 4: Principal Approval and JIT Execution Authorization
+### Task 5: Principal Approval and JIT Execution Authorization
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_authority.py`
@@ -335,7 +483,7 @@ Run: `python -m pytest -q tests/test_registration_wave_authority.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 4**
+- [ ] **Step 5: Commit Task 5**
 
 ```text
 git add src/sedb_ral/registration_wave_authority.py tests/test_registration_wave_authority.py
@@ -344,7 +492,7 @@ git commit -m "feat: separate application and slot authority"
 
 ---
 
-### Task 5: Append-Only Production Wave Policy Control
+### Task 6: Append-Only Production Wave Policy Control
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_policy.py`
@@ -354,10 +502,10 @@ git commit -m "feat: separate application and slot authority"
 
 **Interfaces:**
 - Produces:
-  `plan_wave_policy_activation(storage, plan, authority, checkpoint) -> dict`,
-  `activate_wave_policy(storage, request, authority, acl_observation) -> ActiveWavePolicyRecord`,
-  `terminate_wave_policy(storage, terminal_event, authority) -> ActiveWavePolicyRecord`, and
-  `registration_wave_status(storage) -> dict[str, object]`.
+  `plan_wave_policy_activation(context, storage, plan, approvals, authority, checkpoint) -> dict`,
+  `activate_wave_policy(context, storage, request, approvals, authority, acl_observation) -> ActiveWavePolicyRecord`,
+  `terminate_wave_policy(context, storage, terminal_event, authority) -> ActiveWavePolicyRecord`, and
+  `registration_wave_status(context, storage) -> dict[str, object]`.
 
 - [ ] **Step 1: Write dormant-preservation/status REDs**
 
@@ -365,12 +513,18 @@ git commit -m "feat: separate application and slot authority"
 def test_wave_policy_appends_sequence_one_without_rewriting_dormant(tmp_path):
     storage = dormant_production_fixture(tmp_path)
     before = dormant_bytes(storage)
-    active = activate_wave_policy(storage, request(), authority(), protected_acl())
+    active = activate_wave_policy(context(tmp_path), storage, request(), three_approvals(), authority(), protected_acl())
     assert active.sequence == 1
     assert dormant_bytes(storage) == before
 
+def test_policy_requires_three_exact_application_approvals_before_io(tmp_path, io_spies):
+    with pytest.raises(RALValidationError, match="wave_exact_three_approvals_required"):
+        activate_wave_policy(context(tmp_path, spies=io_spies), storage(tmp_path), request(), two_approvals(), authority(), protected_acl())
+    assert io_spies.reads == 0
+    assert io_spies.writes == 0
+
 def test_expired_policy_refuses_execute_but_status_and_recovery_remain():
-    status = registration_wave_status(expired_policy_storage())
+    status = registration_wave_status(context(), expired_policy_storage())
     assert status["wave_status"] == "expired"
     with pytest.raises(RALValidationError, match="wave_policy_inactive"):
         require_wave_execution(status)
@@ -386,8 +540,11 @@ Expected: missing Wave policy implementation.
 
 Use `policies/wave1-policy-{64hex}.json` and fixed-width
 `active-policy/{sequence:020d}.json`. Bind predecessor, dormant policy, registry
-generation, extension index, checkpoint, authority and status. Reuse existing
-ACL/reparse/hard-link/ADS guards.
+generation, extension index, checkpoint, authority and status. Before any IO,
+require exactly three active `PrincipalApplicationApproval` objects whose
+application digests equal the ordered candidate/application digests in the Wave
+plan; duplicate, missing, changed, expired or revoked approval refuses. Reuse
+existing ACL/reparse/hard-link/ADS guards after the context pre-IO gate.
 
 - [ ] **Step 4: Run policy and production-layout regressions**
 
@@ -395,7 +552,7 @@ Run: `python -m pytest -q tests/test_registration_wave_policy.py tests/test_prod
 
 Expected: PASS with dormant fixture bytes unchanged.
 
-- [ ] **Step 5: Commit Task 5**
+- [ ] **Step 5: Commit Task 6**
 
 ```text
 git add src/sedb_ral/registration_wave_policy.py src/sedb_ral/production_operations_layout.py tests/test_registration_wave_policy.py
@@ -404,25 +561,30 @@ git commit -m "feat: add append-only Wave 1 policy control"
 
 ---
 
-### Task 6: Explicit External Staging Store
+### Task 7: Explicit External Staging Store
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_store.py`
 - Test: `tests/test_registration_wave_store.py`
 
 **Interfaces:**
-- Produces `RegistrationWaveStore(root: Path, expected_wave_digest: str)` with
-  `put_claim`, `put_item_evidence`, `put_host_observation`, `put_prepared`,
-  `put_approval`, `put_slot_request`, `put_slot_receipt`, `read_manifest`, and
+- Produces `RegistrationWaveStore(context: SyntheticWaveExecutionContext, root: Path, expected_wave_digest: str)` with
+  `put_claim`, `put_item_evidence`, `put_host_observation`, `put_candidate`,
+  `put_approval`, `put_slot_request`, `put_slot_receipt`,
+  `read_manifest`, and
   `verify()` create-only methods.
 
 - [ ] **Step 1: Write path/idempotency/tamper REDs**
 
 ```python
-def test_store_rejects_git_private_temp_reparse_hardlink_and_ads_roots(tmp_path):
-    for root in forbidden_roots(tmp_path):
+def test_synthetic_test_mode_accepts_only_its_sealed_tmp_sandbox(tmp_path):
+    store = RegistrationWaveStore(synthetic_test_context(tmp_path), tmp_path / "wave", digest("wave"))
+    assert store.verify()["mode"] == "synthetic_test"
+
+def test_real_staging_mode_rejects_temp_git_private_reparse_hardlink_and_ads(tmp_path):
+    for root in forbidden_real_staging_roots(tmp_path):
         with pytest.raises(RALValidationError, match="wave_staging_root_refused"):
-            RegistrationWaveStore(root, expected_wave_digest=digest("wave"))
+            RegistrationWaveStore(real_staging_context(root), root, digest("wave"))
 
 def test_same_id_changed_bytes_quarantines_without_overwrite(store):
     store.put_claim("slot:1", claim_a())
@@ -438,10 +600,13 @@ Expected: missing store module.
 
 - [ ] **Step 3: Implement explicit root and create-only storage**
 
-Require an existing caller-supplied ACL-reviewed parent and a new absent Wave
-directory. Reject repo roots, AI_HOME/private markers, temp fallback, links,
-ADS and path escapes. Manifest binds every object ref/digest and has no raw
-principal/task/turn values in public export.
+Call `context.verify_before_io()` before every read or write. In
+`synthetic_test`, require the target under the exact sealed pytest sandbox. In
+`real_staging_candidate`, require an existing caller-supplied ACL-reviewed,
+non-temp parent and a new absent Wave directory. Both modes reject production,
+repo, AI_HOME/private, links, hard links, ADS and path escapes. Manifest binds
+the full `RegistrationWavePreparedCandidate` ref/digest plus every evidence
+object; no raw principal/task/turn values enter public export.
 
 - [ ] **Step 4: Run store controls**
 
@@ -449,7 +614,7 @@ Run: `python -m pytest -q tests/test_registration_wave_store.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 6**
+- [ ] **Step 5: Commit Task 7**
 
 ```text
 git add src/sedb_ral/registration_wave_store.py tests/test_registration_wave_store.py
@@ -458,31 +623,32 @@ git commit -m "feat: stage registration wave evidence safely"
 
 ---
 
-### Task 7: One-Slot Registrar Engine
+### Task 8: One-Slot Registrar Engine
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_engine.py`
 - Test: `tests/test_registration_wave_engine.py`
 
 **Interfaces:**
-- Consumes: Tasks 1-6, `evaluate_prepared_registration()`,
+- Consumes: Tasks 1-7, `RegistrationWavePreparedCandidate`,
+  `evaluate_prepared_registration()`,
   `build_admission_plan()` and `commit_admission_plan()`.
 - Produces:
-  `plan_wave_slot(...) -> PlannedWaveSlot` and
-  `execute_wave_slot(...) -> WaveSlotReceipt`.
+  `plan_wave_slot(context, candidate, ...) -> PlannedWaveSlot` and
+  `execute_wave_slot(context, candidate, ...) -> WaveSlotReceipt`.
 
 - [ ] **Step 1: Write one-slot/no-auto-loop REDs**
 
 ```python
 def test_execute_slot_one_does_not_attempt_slot_two(tmp_path):
-    result = execute_wave_slot(engine(tmp_path), slot_request(1), execution_auth(1))
+    result = execute_wave_slot(context(tmp_path), candidate(1), engine(tmp_path), slot_request(1), execution_auth(1))
     assert result.slot_index == 1
     assert result.post_head == h1()
     assert engine_calls(tmp_path) == [1]
 
 def test_slot_three_with_h1_and_no_slot_two_receipt_refuses(tmp_path):
     with pytest.raises(RALValidationError, match="wave_predecessor_missing"):
-        plan_wave_slot(engine(tmp_path), slot_request(3, expected_head=h1()), execution_auth(3))
+        plan_wave_slot(context(tmp_path), candidate(3), engine(tmp_path), slot_request(3, expected_head=h1()), execution_auth(3))
 ```
 
 - [ ] **Step 2: Run RED**
@@ -493,11 +659,15 @@ Expected: missing engine.
 
 - [ ] **Step 3: Implement preflight/restage/commit/readback**
 
-Validate Wave policy/status, plan/order, principal approval, JIT authorization,
-checkpoint and expected head before using the existing registrar Core. Build
-and restage the complete candidate chain. Execute exactly one slot, then
-produce a receipt only after canonical projection readback. If B6A is pending,
-record `canonical_committed_readback_failed` and stop later slots.
+Call `context.verify_before_io()` first. Validate candidate wrapper/item/host
+evidence, Wave policy/status, plan/order, three approval eligibility, JIT
+authorization, checkpoint and expected head before using the existing registrar
+Core against synthetic storage only. Build and restage the complete candidate
+chain. Execute exactly one synthetic slot and produce a
+`synthetic_candidate_only` receipt/readback bundle with
+`live_limen_b6a=NOT_RUN` and `production_wave_run=NOT_RUN`. Never emit a
+production `accepted` or `canonical_committed_readback_failed` receipt in this
+plan.
 
 - [ ] **Step 4: Run engine plus registrar regressions**
 
@@ -505,7 +675,7 @@ Run: `python -m pytest -q tests/test_registration_wave_engine.py tests/test_phas
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 7**
+- [ ] **Step 5: Commit Task 8**
 
 ```text
 git add src/sedb_ral/registration_wave_engine.py tests/test_registration_wave_engine.py
@@ -514,7 +684,7 @@ git commit -m "feat: execute one registration wave slot safely"
 
 ---
 
-### Task 8: Crash Prefix and Outer-Receipt Recovery
+### Task 9: Crash Prefix and Outer-Receipt Recovery
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_recovery.py`
@@ -522,9 +692,9 @@ git commit -m "feat: execute one registration wave slot safely"
 
 **Interfaces:**
 - Produces:
-  `inspect_wave_slot_prefix(...) -> durable_receipt | recovery_required | registrar_partial_transaction`,
-  `recover_wave_slot_receipt(...) -> WaveSlotRecoveryReceipt`, and
-  `plan_wave_continuation(...) -> dict[str, object]`.
+  `inspect_wave_slot_prefix(context, ...) -> durable_receipt | recovery_required | registrar_partial_transaction`,
+  `recover_wave_slot_receipt(context, recovery_authorization, ...) -> WaveSlotRecoveryReceipt`, and
+  `plan_wave_continuation(context, ...) -> dict[str, object]`.
 
 - [ ] **Step 1: Write three crash-point REDs**
 
@@ -537,6 +707,12 @@ def test_complete_events_without_outer_receipt_require_recovery():
 
 def test_mid_chain_prefix_is_not_recovery_required_or_accepted():
     assert inspect_wave_slot_prefix(partial_prefix()).status == "registrar_partial_transaction"
+
+def test_recovery_without_exact_recovery_authorization_fails_before_io(io_spies):
+    with pytest.raises(RALValidationError, match="wave_recovery_authorization_missing"):
+        recover_wave_slot_receipt(context(spies=io_spies), None, complete_without_outer())
+    assert io_spies.reads == 0
+    assert io_spies.writes == 0
 ```
 
 - [ ] **Step 2: Run RED**
@@ -547,8 +723,11 @@ Expected: missing recovery module.
 
 - [ ] **Step 3: Implement exact prefix and continuation gates**
 
-Reconstruct event IDs/digests/pre/post heads from canonical files. Recover only
-a complete exact prefix under separate principal authorization. A stopped,
+Call `context.verify_before_io()` before prefix reads. Reconstruct event
+IDs/digests/pre/post heads from synthetic canonical files. Recover only a
+complete exact prefix under a sealed `WaveSlotRecoveryAuthorization` bound to
+wave/slot/request/original execution authorization/application approval,
+pre/post heads, checkpoint and current prefix. A stopped,
 expired or revoked Wave needs a new continuation policy, checkpoint, current
 head and execution authorization; unchanged application approval remains valid
 only when active/unexpired/unrevoked.
@@ -559,7 +738,7 @@ Run: `python -m pytest -q tests/test_registration_wave_recovery.py tests/test_ph
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 8**
+- [ ] **Step 5: Commit Task 9**
 
 ```text
 git add src/sedb_ral/registration_wave_recovery.py tests/test_registration_wave_recovery.py
@@ -568,7 +747,7 @@ git commit -m "feat: recover Wave 1 receipts without blind replay"
 
 ---
 
-### Task 9: Public RAL Readback Bundle for LIMEN B6A
+### Task 10: Public RAL Readback Bundle for Later LIMEN B6A
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_readback.py`
@@ -576,20 +755,20 @@ git commit -m "feat: recover Wave 1 receipts without blind replay"
 
 **Interfaces:**
 - Produces:
-  `build_wave_readback_bundle(ledger_root, expected_head, plan, receipts) -> dict[str, object]` and
-  `verify_fresh_limen_observation(bundle, observation) -> dict[str, object]`.
+  `build_wave_readback_bundle(context, ledger_root, expected_head, plan, receipts) -> WaveReadbackBundle`.
 
-- [ ] **Step 1: Write fresh-vs-claim-time observation REDs**
+- [ ] **Step 1: Write RAL-bundle and non-promotion REDs**
 
 ```python
-def test_claim_time_item_cannot_be_reused_for_b6a():
-    with pytest.raises(RALValidationError, match="stale_readback_observation"):
-        verify_fresh_limen_observation(bundle(h1()), claim_time_observation())
+def test_bundle_reports_synthetic_ral_state_without_claiming_live_b6a():
+    result = build_wave_readback_bundle(context(), ledger(), h1(), plan(), receipts(1))
+    assert result.admitted_slot_indexes == (1,)
+    assert result.production_wave_run == "NOT_RUN"
+    assert result.live_limen_b6a == "NOT_RUN"
 
-def test_each_post_slot_bundle_resolves_only_admitted_locators():
-    assert resolved_slots(bundle(h1())) == (1,)
-    assert resolved_slots(bundle(h2())) == (1, 2)
-    assert resolved_slots(bundle(h3())) == (1, 2, 3)
+def test_claim_time_observation_is_not_accepted_by_ral_bundle_builder():
+    with pytest.raises(TypeError):
+        build_wave_readback_bundle(context(), ledger(), h1(), plan(), claim_time_observation())
 ```
 
 - [ ] **Step 2: Run RED**
@@ -600,10 +779,12 @@ Expected: missing module.
 
 - [ ] **Step 3: Implement sanitized digest-bound bundle**
 
-Bind exact RAL view schema/raw/public digests, ledger/authority/binding heads,
-source events and per-slot application/resident/address/binding projection
-digests. Require a fresh task/turn observation; record resolution separately
-from pre-turn enforcement. Do not implement LIMEN code in this repo.
+Bind exact synthetic RAL view schema/raw/public digests, ledger/authority/
+binding heads, source events and per-slot application/resident/address/binding
+projection digests. Set `production_wave_run=NOT_RUN` and
+`live_limen_b6a=NOT_RUN`. Do not accept a LIMEN observation or claim resolution/
+enforcement success in this repo; the later LIMEN-owner plan supplies those
+objects and tests W1-047/W1-048.
 
 - [ ] **Step 4: Run RAL/LIMEN exporter regressions**
 
@@ -611,7 +792,7 @@ Run: `python -m pytest -q tests/test_registration_wave_readback.py tests/test_li
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 9**
+- [ ] **Step 5: Commit Task 10**
 
 ```text
 git add src/sedb_ral/registration_wave_readback.py tests/test_registration_wave_readback.py
@@ -620,7 +801,7 @@ git commit -m "feat: export Wave 1 public readback evidence"
 
 ---
 
-### Task 10: Typed CLI Surface
+### Task 11: Typed CLI Surface
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_cli.py`
@@ -643,7 +824,7 @@ def test_validate_and_plan_commands_write_only_explicit_output(tmp_path):
 
 def test_slot_admit_requires_explicit_synthetic_root_until_live_gate():
     result = run_cli("registration-wave", "slot-admit", *without_synthetic_root())
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert result.json["reason_code"] == "production_wave_execution_not_authorized"
 ```
 
@@ -656,7 +837,10 @@ Expected: parser command missing.
 - [ ] **Step 3: Implement canonical JSON CLI handlers**
 
 Use strict UTF-8/duplicate-key parsing, canonical stdout, typed exit codes and
-explicit output roots. The code candidate hard-refuses exact production
+explicit output roots. Input/unreadable/malformed transport errors use exit 1;
+readable substantive policy/authority/boundary refusals use exit 2. Construct
+and verify `SyntheticWaveExecutionContext` in every mutating handler; direct
+library calls retain the same guard. The code candidate hard-refuses exact production
 execution unless a later operational plan replaces the candidate guard under
 Neo.K authority.
 
@@ -666,7 +850,7 @@ Run: `python -m pytest -q tests/test_registration_wave_cli.py tests/test_phase3a
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 10**
+- [ ] **Step 5: Commit Task 11**
 
 ```text
 git add src/sedb_ral/registration_wave_cli.py src/sedb_ral/cli.py tests/test_registration_wave_cli.py
@@ -675,7 +859,7 @@ git commit -m "feat: expose typed Wave 1 CLI"
 
 ---
 
-### Task 11: Deterministic Wave Acceptance Matrix
+### Task 12: Deterministic Wave Acceptance Matrix
 
 **Files:**
 - Create: `src/sedb_ral/registration_wave_acceptance.py`
@@ -692,8 +876,14 @@ git commit -m "feat: expose typed Wave 1 CLI"
 def test_acceptance_has_every_unique_case_and_executed_control(tmp_path):
     report = validate_registration_wave(tmp_path)
     assert tuple(case.case_id for case in report.cases) == tuple(f"W1-{i:03d}" for i in range(1, 54))
-    assert all(case.executed and case.passed for case in report.cases)
-    assert report.effects == {"real_applicants": 0, "production_events": 0, "private_reads": 0, "network_calls": 0}
+    assert all(case.passed for case in report.cases if case.case_id not in {"W1-047", "W1-048"})
+    assert {case.case_id: case.status for case in report.cases if not case.executed} == {
+        "W1-047": "NOT_RUN_OWNER_PLAN_REQUIRED",
+        "W1-048": "NOT_RUN_OWNER_PLAN_REQUIRED",
+    }
+    assert report.production_wave_run == "NOT_RUN"
+    assert report.live_limen_b6a == "NOT_RUN"
+    assert report.effects.nonzero_dimensions() == ()
 ```
 
 - [ ] **Step 2: Run RED**
@@ -704,10 +894,15 @@ Expected: missing report/module.
 
 - [ ] **Step 3: Implement two-run deterministic synthetic acceptance**
 
-Execute all 53 negative/positive populations in disposable storage. Compare
+Execute 51 RAL-owned negative/positive populations in disposable storage and
+retain W1-047/W1-048 as explicit LIMEN-owner `NOT_RUN_OWNER_PLAN_REQUIRED`
+entries. Compare
 canonical report/execution digests across two runs with supplied opaque fixture
 IDs. Include active policy, three slots, crash/recovery, locator, authorship,
-authority, B6A bundle and private/no-network controls.
+authority, RAL readback bundle and private/no-network controls. Use a scoped
+`WaveEffectJournal` and injected capability adapters to attempt production/
+private reads and writes, network, provider, Fabric, MCP and external CLI calls;
+every injected attempt must increment a dimension and turn the gate red.
 
 - [ ] **Step 4: Run acceptance and generate temp report**
 
@@ -719,9 +914,11 @@ $out = Join-Path $env:TEMP 'r3b-c-wave1-synthetic.json'
 python scripts/validate_registration_wave.py --output $out
 ```
 
-Expected: 53 pass, zero fail/blocked, repeated digest match, zero real effects.
+Expected: 51 executed pass, W1-047/W1-048 explicit owner-plan NOT_RUN, zero
+fail/blocked, repeated digest match, every injected effect control red, and zero
+effects in the positive.
 
-- [ ] **Step 5: Commit Task 11**
+- [ ] **Step 5: Commit Task 12**
 
 ```text
 git add src/sedb_ral/registration_wave_acceptance.py scripts/validate_registration_wave.py tests/test_registration_wave_acceptance.py
@@ -730,7 +927,7 @@ git commit -m "test: validate the three-seat registration wave"
 
 ---
 
-### Task 12: Packaging, CI, Documentation and Final Candidate Gate
+### Task 13: Packaging, CI, Documentation and Final Candidate Gate
 
 **Files:**
 - Modify: `pyproject.toml` version from `0.5.0b1` to `0.5.0c1`; retain the
@@ -764,7 +961,12 @@ Expected: missing installed Wave resources.
 
 The runbook states that current applicant claims are candidate-only until exact
 assistant item evidence is host-visible. It contains no real task IDs, labels,
-digests, staging paths or production authority.
+digests, staging paths or production authority. It states exactly:
+
+```text
+production_wave_run = NOT_RUN
+live_limen_b6a = NOT_RUN
+```
 
 - [ ] **Step 4: Run final code-candidate gates**
 
@@ -781,9 +983,10 @@ python scripts/validate_registration_wave.py --output $wave
 git diff --check 580b647d2ce567ece16d5e07f9b9aa8dfa5b79a2..HEAD
 ```
 
-Expected: zero failures; every skip listed; P3-4/R3B-B unchanged; W1 53/53;
-production root remains active_dormant with 0 applications/residents/events;
-worktree clean after commit.
+Expected: zero failures; every skip listed; P3-4/R3B-B unchanged; 51 RAL-owned
+W1 cases executed PASS; W1-047/W1-048 explicit
+`NOT_RUN_OWNER_PLAN_REQUIRED`; production root remains active_dormant with 0
+applications/residents/events; worktree clean after commit.
 
 - [ ] **Step 5: Build retained wheel and record exact hashes**
 
@@ -791,7 +994,7 @@ Use a new explicit temporary root. Record wheel bytes/SHA, installed module
 source, schema bytes/SHA, dependency metadata, no-vendoring/runtime-boundary
 scans and reproducibility status. Do not publish.
 
-- [ ] **Step 6: Commit Task 12**
+- [ ] **Step 6: Commit Task 13**
 
 ```text
 git add pyproject.toml .github/workflows/phase3a.yml docs/runtime/R3B_C_THREE_SEAT_WAVE1.md tests/test_registration_wave_packaging.py
@@ -807,24 +1010,28 @@ real applications, activate Wave policy or append production events.
 ## Spec coverage map
 
 - Equal standing, public-only scope and no hierarchy: Global Constraints plus
-  Tasks 1, 3, 9 and 11.
+  Tasks 1, 4, 10 and 12.
 - Applicant claim/item/host binding, exact-three gate and continuity refusal:
-  Tasks 1 and 2.
-- Canonical locator grammar and collision separation: Tasks 1, 2 and 11.
+  Tasks 1 and 3.
+- Canonical locator grammar and collision separation: Tasks 1, 3 and 12.
+- Non-bypassable synthetic/real-staging modes and measured effects: Task 2 and
+  every guarded API in Tasks 3-12.
 - Principal application approval and separate JIT execution authorization:
-  Tasks 1 and 4.
+  Tasks 1 and 5.
 - Append-only Wave policy/control/status and dormant preservation: Tasks 1 and
-  5.
-- Explicit external staging and no private/Git/temp fallback: Task 6.
+  6.
+- Explicit mode-aware staging and no production/private/Git/path escape: Tasks
+  2 and 7.
 - Typed H0, Wave plan, slot order, predecessor receipts and one-slot execution:
-  Tasks 1, 3 and 7.
+  Tasks 1, 4 and 8.
 - Durable receipt retry, outer-receipt recovery, partial prefix and continuation
-  policy: Tasks 1 and 8.
-- Fresh post-append public RAL bundle and claim-time/B6A separation: Tasks 1 and
-  9; LIMEN consumption remains the later B6A plan.
-- Typed CLI and production hard-stop: Task 10.
-- W1-001 through W1-053, deterministic controls and zero real effects: Task 11.
-- Wheel/CI/runbook/final evidence and one Twin gate: Task 12.
+  policy: Tasks 1 and 9.
+- Synthetic RAL readback bundle without live-B6A promotion: Tasks 1 and 10;
+  LIMEN consumption remains the later B6A plan.
+- Typed CLI and core production hard-stop: Tasks 2 and 11.
+- W1-001 through W1-053 with two explicit LIMEN-owner NOT_RUN cases, measured
+  effects and zero real side effects: Task 12.
+- Wheel/CI/runbook/final evidence and one Twin gate: Task 13.
 
 ## Post-plan gates not authorized here
 
