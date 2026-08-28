@@ -127,7 +127,8 @@ Each claim follows `sedb-ral.self-application-claim/0.1` and includes:
 
 - desired display label as a claim;
 - no existing resident ID unless separately proven;
-- `continuity_claim = new | uncertain`; `continue` remains only a claim;
+- `existing_resident_claim = null`;
+- `continuity_claim = new | uncertain`;
 - one desired `codex_thread` address using the host-observed task locator;
 - bounded role-description claim;
 - dissent/limits;
@@ -136,8 +137,20 @@ Each claim follows `sedb-ral.self-application-claim/0.1` and includes:
 - explicit nonclaims for verified identity, registrar authority, and private
   access.
 
-`opt_in=false`, no canonical applicant item, or ambiguous authorship stops only
-that slot before preparation.
+The installed generic claim schema also recognizes `continue`, but Wave 1 does
+not. `continue`, a non-null existing-resident claim, or any resident/lineage
+reference stops that candidate before preparation with
+`continuity_evidence_required`. It is never silently converted into a new
+resident. Separate lineage/resident evidence and merge authority are required
+under a superseding design.
+
+Before policy activation and slot 1, `opt_in=false`, no canonical applicant
+item, ambiguous authorship, or any failed slot stops this exact three-seat wave
+with zero canonical append. Other valid claims may remain noncanonical and may
+be proposed later only through a separately approved superseding wave; this
+Wave 1 policy never degrades to two applicants. After a successful canonical
+append, any later failure retains earlier residents and stops all pending
+slots.
 
 ## 6. Host-observation phase
 
@@ -154,9 +167,51 @@ title, display label, model, project, role, memory file, quoted transcript,
 runtime tag, or another task's binding carries zero identity weight.
 
 A stale or cross-task turn, missing item, unresolved current task, or locator
-collision stops that slot without affecting the other prepared candidates.
+collision marks that slot failed. Before slot 1 this stops the exact three-seat
+wave with zero append; after an earlier canonical admission it stops every
+pending slot while preserving admitted residents.
 
-### 6.1 Canonical `codex_thread` locator grammar
+### 6.1 Applicant item evidence and claim-time observation
+
+Wave 1 introduces a closed `registration-applicant-item-evidence/0.1`:
+
+```text
+item_evidence_id
+provider
+adapter_kind
+native_thread_id
+native_turn_id
+applicant_item_ref
+canonical_claim_digest
+raw_item_evidence_digest
+capture_status = host_observed
+observed_origin
+observed_at_ref
+unavailable_fields
+not_claimed
+item_evidence_digest
+```
+
+`raw_item_evidence_digest` binds the host-retained exact output item evidence;
+raw item bytes stay in the bounded host evidence source and are not copied into
+Git or the public registry.
+
+The existing `registration-host-observation/0.1` is not silently relaxed.
+Wave 1 uses `registration-host-observation/0.2`, which retains all v0.1 fields
+and additionally requires:
+
+```text
+applicant_item_evidence_ref
+applicant_item_evidence_digest
+canonical_claim_digest
+```
+
+Preparation verifies exact equality across the canonical claim digest, item
+evidence, host observation, native thread, native turn and applicant item ref.
+An unrelated nonempty turn/item ref, a changed claim with retained item
+evidence, or item evidence from another task refuses before ID assignment.
+
+### 6.2 Canonical `codex_thread` locator grammar
 
 Wave 1 accepts only the host-observed canonical lowercase UUID text form:
 
@@ -468,7 +523,19 @@ unexpired and unrevoked; it never substitutes for the fresh execution gate.
 ## 12. LIMEN B6A public readback
 
 After every append, LIMEN B6A receives a freshly rebuilt public RAL view and a
-fresh host observation for that applicant.
+new `limen.registration-readback-observation/0.1` captured from a fresh current
+task/turn. Claim-time host observation and applicant item evidence remain
+historical application provenance; they cannot prove post-append currentness.
+
+The B6A observation binds:
+
+- exact current native task and fresh turn;
+- exact rebuilt RAL view schema, raw bytes digest, public view digest and
+  ledger/binding/authority heads;
+- the admitted application/resident/address/binding source refs;
+- the new output item/envelope ref if present;
+- resolution evidence and pre-turn enforcement as separate fields; and
+- explicit temporal/currentness limitations.
 
 Required results:
 
@@ -479,6 +546,10 @@ Required results:
 - resolution evidence and pre-turn enforcement are recorded separately;
 - private access remains refused for all three.
 
+Reusing the claim-time `applicant_item_ref`, claim-time turn, or pre-admission
+RAL head in B6A produces `stale_readback_observation` and cannot issue a current
+envelope.
+
 The final wave state is not complete until all three individual B6A readbacks
 and the combined three-resident collision scan pass.
 
@@ -487,8 +558,8 @@ and the combined three-resident collision scan pass.
 | ID | Population | Required result |
 |---|---|---|
 | W1-001 | three exact applicant-authored claims | three distinct candidate claims |
-| W1-002 | one relayed/absent claim | only that slot stops |
-| W1-003 | opt-in false | that slot not prepared |
+| W1-002 | one relayed/absent claim before slot 1 | exact three-seat wave stops; zero append |
+| W1-003 | opt-in false before slot 1 | exact three-seat wave stops; zero append |
 | W1-004 | task/turn/output mismatch | preparation refused |
 | W1-005 | three exact distinct thread locators | no address collision |
 | W1-006 | duplicate/case-confusable locator | conflicting; no tie-break |
@@ -528,6 +599,12 @@ and the combined three-resident collision scan pass.
 | W1-040 | continuation with stale head or old execution authority | refusal |
 | W1-041 | uppercase/braced/Unicode-hyphen locator | noncanonical locator refusal |
 | W1-042 | exact canonical duplicate locator | address collision |
+| W1-043 | claim digest differs from host item evidence | preparation refused before ID assignment |
+| W1-044 | unrelated nonempty turn/item ref with same locator | preparation refused |
+| W1-045 | `continue` or non-null resident claim | continuity_evidence_required; no silent new resident |
+| W1-046 | one failed candidate before policy activation | wave policy not activatable; zero append |
+| W1-047 | B6A reuses claim-time turn/item | stale_readback_observation |
+| W1-048 | fresh B6A observation bound to rebuilt H1/H2/H3 view | current per-slot resolution |
 
 Every negative population has an executed positive control that proves the
 named gate rather than a dead runtime.
