@@ -181,6 +181,11 @@ provider
 adapter_kind
 native_thread_id
 native_turn_id
+source_item_role = assistant
+source_item_kind = agentMessage
+source_item_status = completed
+source_item_parent_thread_id
+source_item_parent_turn_id
 applicant_item_ref
 canonical_claim_digest
 raw_item_evidence_digest
@@ -192,9 +197,18 @@ not_claimed
 item_evidence_digest
 ```
 
-`raw_item_evidence_digest` binds the host-retained exact output item evidence;
-raw item bytes stay in the bounded host evidence source and are not copied into
-Git or the public registry.
+For the `codex_app_task_tool` profile, applicant output is exactly a completed
+assistant `agentMessage` whose parent thread/turn equals the host-observed
+native thread/turn. The closed profile rejects `userMessage`,
+`codexDelegation`, reasoning, tool/dynamic-tool calls, command output, file
+changes, controller-authored content, and relay items even when they contain
+byte-identical claim JSON.
+
+`raw_item_evidence_digest` binds the host-retained exact item metadata together
+with its exact content bytes, including role, kind, completion status, item ref,
+parent thread and parent turn. It is not a digest of the claim body alone. Raw
+item bytes stay in the bounded host evidence source and are not copied into Git
+or the public registry.
 
 The existing `registration-host-observation/0.1` is not silently relaxed.
 Wave 1 uses `registration-host-observation/0.2`, which retains all v0.1 fields
@@ -210,6 +224,10 @@ Preparation verifies exact equality across the canonical claim digest, item
 evidence, host observation, native thread, native turn and applicant item ref.
 An unrelated nonempty turn/item ref, a changed claim with retained item
 evidence, or item evidence from another task refuses before ID assignment.
+When a fresh host read exposes no canonical completed assistant item (`items=[]`
+or equivalent structural absence), status is `applicant_output_unavailable`;
+candidate claim bytes may be retained as unverified intake, but preparation,
+policy eligibility and authority generation remain stopped.
 
 ### 6.2 Canonical `codex_thread` locator grammar
 
@@ -622,6 +640,10 @@ and the combined three-resident collision scan pass.
 | W1-047 | B6A reuses claim-time turn/item | stale_readback_observation |
 | W1-048 | fresh B6A observation bound to rebuilt H1/H2/H3 view | current per-slot resolution |
 | W1-049 | crash after a strict prefix but before final event | registrar_partial_transaction; wave stopped; no outer accepted receipt |
+| W1-050 | controller userMessage/codexDelegation with byte-identical claim | applicant authorship invalid |
+| W1-051 | reasoning/tool/command/file item with byte-identical claim | applicant authorship invalid |
+| W1-052 | fresh host read returns no completed applicant item | applicant_output_unavailable; no preparation |
+| W1-053 | completed assistant agentMessage bound to exact parent thread/turn and content | applicant item evidence verified |
 
 Every negative population has an executed positive control that proves the
 named gate rather than a dead runtime.
