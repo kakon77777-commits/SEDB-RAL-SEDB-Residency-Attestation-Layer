@@ -310,6 +310,16 @@ class RegistrationWaveStore:
             value=parsed.to_dict(),
         )
 
+    def get_slot_result(
+        self, identifier: str
+    ) -> SyntheticWaveSlotExecutionResult | None:
+        path = self._path("slot-results", identifier)
+        self.context.verify_before_io("store_slot_result_read", path)
+        if not path.is_file():
+            return None
+        record = self._verify_record(path)
+        return SyntheticWaveSlotExecutionResult.from_dict(record["object"])
+
     def put_recovery_result(self, identifier: str, result: object) -> StoreResult:
         if not isinstance(result, SyntheticWaveSlotRecoveryResult):
             raise RALValidationError(
@@ -324,6 +334,16 @@ class RegistrationWaveStore:
             object_digest=parsed.digest,
             value=parsed.to_dict(),
         )
+
+    def get_recovery_result(
+        self, identifier: str
+    ) -> SyntheticWaveSlotRecoveryResult | None:
+        path = self._path("recovery-results", identifier)
+        self.context.verify_before_io("store_recovery_result_read", path)
+        if not path.is_file():
+            return None
+        record = self._verify_record(path)
+        return SyntheticWaveSlotRecoveryResult.from_dict(record["object"])
 
     def _verify_record(self, path: Path) -> dict[str, object]:
         value = _read_object(path, "wave_store_record_invalid")
