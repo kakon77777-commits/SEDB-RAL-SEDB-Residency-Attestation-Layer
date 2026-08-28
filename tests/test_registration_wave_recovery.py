@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -22,6 +23,7 @@ from test_registration_wave_engine import (
 )
 from test_registration_wave_policy import policy_time
 
+from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registrar import commit_admission_plan
 from sedb_ral.registration_wave_engine import (
@@ -356,3 +358,49 @@ def test_partial_prefix_cannot_plan_continuation_without_new_policy_authority(
 
     assert result["continuation_status"] == "separate_authority_required"
     assert result["automatic_resume"] is False
+
+
+@pytest.mark.parametrize("gate", ("store", "inspection"))
+def test_resealed_recovery_result_cannot_substitute_recovery_authority(
+    tmp_path, published_storage, gate
+):
+    context, planned, store = prepared_state(
+        tmp_path, published_storage, mode="complete_without_result"
+    )
+    inspection = inspect_wave_slot_prefix(context, planned, store)
+    authorization = verified_recovery_authorization(inspection, planned)
+    recover_synthetic_wave_slot_result(
+        context,
+        authorization,
+        inspection,
+        planned,
+        store,
+        time=time_evidence(),
+    )
+    path = next((store.root / "records/recovery-results").glob("*.json"))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    result_value = dict(record["object"])
+    result_value.pop("result_digest")
+    result_value.update(
+        {
+            "recovery_authorization_ref": "recovery-authorization:attacker",
+            "recovery_authorization_digest": sha256_ref(
+                {"attacker": "recovery"}
+            ),
+        }
+    )
+    forged = SyntheticWaveSlotRecoveryResult.sealed(result_value)
+    record["object"] = forged.to_dict()
+    record["object_digest"] = forged.digest
+    record["record_digest"] = sha256_ref(
+        {key: value for key, value in record.items() if key != "record_digest"}
+    )
+    path.write_bytes(canonical_bytes(record))
+
+    with pytest.raises(
+        RALValidationError, match="verified_synthetic_recovery_required"
+    ):
+        if gate == "store":
+            store.verify()
+        else:
+            inspect_wave_slot_prefix(context, planned, store)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -14,8 +14,15 @@ from .registration_wave_authority import (
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
     VerifiedApplicationApproval,
+    VerifiedApplicationAuthority,
+    VerifiedAuthorityTimeEvidence,
+    VerifiedSlotExecutionAuthorization,
+    _verify_user_item,
+    derive_verified_application_authority,
+    observe_synthetic_authority_time,
     verify_application_approval,
     verify_authority_time_evidence,
+    verify_slot_execution_authorization,
 )
 from .registration_wave_context import SyntheticWaveExecutionContext
 from .registration_wave_intake import (
@@ -27,10 +34,14 @@ from .registration_wave_intake import (
 from .registration_wave_models import (
     ApplicantItemEvidence,
     PrincipalApplicationApproval,
+    RegistrationWavePlan,
+    RegistrationWavePolicy,
     RegistrationWavePreparedCandidate,
+    SlotExecutionAuthorization,
     SyntheticWaveSlotExecutionResult,
     SyntheticWaveSlotRecoveryResult,
     WaveHostObservation,
+    WaveSlotRecoveryAuthorization,
     WaveSlotRequest,
 )
 
@@ -44,6 +55,8 @@ _KINDS = (
     "slot-results",
     "recovery-results",
 )
+_SLOT_RESULT_CAPABILITY_TOKEN = object()
+_RECOVERY_RESULT_CAPABILITY_TOKEN = object()
 
 
 @dataclass(frozen=True)
@@ -51,6 +64,259 @@ class StoreResult:
     kind: Literal["created", "duplicate"]
     relative_ref: str
     record_digest: str
+
+
+@dataclass(frozen=True)
+class VerifiedSyntheticWaveSlotResult:
+    result: SyntheticWaveSlotExecutionResult
+    execution: VerifiedSlotExecutionAuthorization
+    application_authority: VerifiedApplicationAuthority
+    planned_slot_digest: str
+    prefix_plan_digest: str
+    prefix_verification_digest: str
+    prefix_result_digests: tuple[str, ...]
+    prefix_final_head: str | None
+    prefix_event_count: int
+    issuance_time: VerifiedAuthorityTimeEvidence
+    verification_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _SLOT_RESULT_CAPABILITY_TOKEN:
+            raise RALValidationError(
+                "verified_synthetic_result_required",
+                "synthetic result capability was not verifier-issued",
+            )
+
+    def verify(self) -> None:
+        self.execution.verify_current(self.issuance_time)
+        self.application_authority.verify_current(
+            self.execution, self.issuance_time
+        )
+        result = SyntheticWaveSlotExecutionResult.from_dict(self.result.to_dict())
+        request = self.execution.request
+        material = {
+            "result_digest": result.digest,
+            "execution_capability_digest": self.execution.verification_digest,
+            "application_authority_capability_digest": self.application_authority.verification_digest,
+            "planned_slot_digest": self.planned_slot_digest,
+            "prefix_plan_digest": self.prefix_plan_digest,
+            "prefix_verification_digest": self.prefix_verification_digest,
+            "prefix_result_digests": list(self.prefix_result_digests),
+            "prefix_final_head": self.prefix_final_head,
+            "prefix_event_count": self.prefix_event_count,
+            "issuance_time_digest": self.issuance_time.verification_digest,
+        }
+        if (
+            result.wave_plan_digest != self.prefix_plan_digest
+            or result.slot_request_ref != request.request_id
+            or result.slot_request_digest != request.digest
+            or result.execution_authorization_ref
+            != self.execution.authorization.execution_authorization_id
+            or result.execution_authorization_digest
+            != self.execution.authorization.digest
+            or result.application_approval_ref
+            != self.execution.approval.approval.approval_id
+            or result.application_approval_digest
+            != self.execution.approval.approval.digest
+            or result.pre_head != self.prefix_final_head
+            or result.slot_index != len(self.prefix_result_digests) + 1
+            or request.expected_ledger_state["ledger_event_count"]
+            != self.prefix_event_count
+            or self.verification_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "verified_synthetic_result_required",
+                "synthetic result authority or prefix evidence differs",
+            )
+
+
+def issue_verified_synthetic_slot_result(
+    result: SyntheticWaveSlotExecutionResult,
+    execution: VerifiedSlotExecutionAuthorization,
+    application_authority: VerifiedApplicationAuthority,
+    *,
+    planned_slot_digest: str,
+    prefix_plan_digest: str,
+    prefix_verification_digest: str,
+    prefix_result_digests: tuple[str, ...],
+    prefix_final_head: str | None,
+    prefix_event_count: int,
+    time: VerifiedAuthorityTimeEvidence,
+) -> VerifiedSyntheticWaveSlotResult:
+    material = {
+        "result_digest": result.digest,
+        "execution_capability_digest": execution.verification_digest,
+        "application_authority_capability_digest": application_authority.verification_digest,
+        "planned_slot_digest": planned_slot_digest,
+        "prefix_plan_digest": prefix_plan_digest,
+        "prefix_verification_digest": prefix_verification_digest,
+        "prefix_result_digests": list(prefix_result_digests),
+        "prefix_final_head": prefix_final_head,
+        "prefix_event_count": prefix_event_count,
+        "issuance_time_digest": time.verification_digest,
+    }
+    capability = VerifiedSyntheticWaveSlotResult(
+        result=result,
+        execution=execution,
+        application_authority=application_authority,
+        planned_slot_digest=planned_slot_digest,
+        prefix_plan_digest=prefix_plan_digest,
+        prefix_verification_digest=prefix_verification_digest,
+        prefix_result_digests=prefix_result_digests,
+        prefix_final_head=prefix_final_head,
+        prefix_event_count=prefix_event_count,
+        issuance_time=time,
+        verification_digest=sha256_ref(material),
+        _token=_SLOT_RESULT_CAPABILITY_TOKEN,
+    )
+    capability.verify()
+    return capability
+
+
+@dataclass(frozen=True)
+class VerifiedSyntheticWaveRecoveryResult:
+    result: SyntheticWaveSlotRecoveryResult
+    recovery_authorization: WaveSlotRecoveryAuthorization
+    recovery_raw_item: RawPrincipalItemSnapshot = field(repr=False)
+    recovery_host: PrincipalHostObservation
+    recovery_time: VerifiedAuthorityTimeEvidence
+    recovery_inspection_digest: str
+    recovery_planned_slot_digest: str
+    recovery_capability_digest: str
+    reconstructed_result: VerifiedSyntheticWaveSlotResult
+    verification_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _RECOVERY_RESULT_CAPABILITY_TOKEN:
+            raise RALValidationError(
+                "verified_synthetic_recovery_required",
+                "synthetic recovery capability was not verifier-issued",
+            )
+
+    def verify(self) -> None:
+        self.reconstructed_result.verify()
+        self.recovery_host.verify()
+        self.recovery_time.verify_current(
+            self.recovery_authorization.valid_from_ref,
+            self.recovery_authorization.expires_at_ref,
+        )
+        execution = self.reconstructed_result.execution
+        plan = execution.plan
+        request = execution.request
+        expected_intent = {
+            "schema": "sedb-ral.registration-wave-slot-recovery-intent/0.1",
+            "principal_ref": self.recovery_authorization.principal_ref,
+            "wave_plan_digest": plan.digest,
+            "slot_id": request.slot_id,
+            "slot_request_digest": request.digest,
+            "original_execution_authorization_digest": execution.authorization.digest,
+            "application_approval_digest": execution.approval.approval.digest,
+            "verified_prefix_digest": self.recovery_authorization.verified_prefix_digest,
+            "pre_head": request.expected_ledger_state["expected_ledger_head"],
+            "post_head": self.result.post_head,
+            "checkpoint_digest": plan.checkpoint_digest,
+            "current_readback_digest": self.recovery_authorization.current_readback_digest,
+        }
+        _verify_user_item(
+            self.recovery_raw_item, self.recovery_host, expected_intent
+        )
+        recovery_material = {
+            "authorization_digest": self.recovery_authorization.digest,
+            "inspection_digest": self.recovery_inspection_digest,
+            "planned_slot_digest": self.recovery_planned_slot_digest,
+            "raw_item_digest": self.recovery_raw_item.evidence_digest,
+            "host_observation_digest": self.recovery_host.digest,
+            "issuance_time_digest": self.recovery_time.verification_digest,
+        }
+        expected_recovery_planned_digest = sha256_ref(
+            {
+                "planned_digest": self.reconstructed_result.planned_slot_digest,
+                "wave_plan_digest": plan.digest,
+                "slot_request_digest": request.digest,
+                "execution_authorization_digest": execution.authorization.digest,
+                "application_approval_digest": execution.approval.approval.digest,
+                "checkpoint_digest": plan.checkpoint_digest,
+            }
+        )
+        material = {
+            "result_digest": self.result.digest,
+            "recovery_capability_digest": self.recovery_capability_digest,
+            "reconstructed_result_capability_digest": self.reconstructed_result.verification_digest,
+            "recovery_time_digest": self.recovery_time.verification_digest,
+        }
+        if (
+            self.recovery_capability_digest != sha256_ref(recovery_material)
+            or self.recovery_authorization.principal_ref
+            != execution.approval.approval.principal_ref
+            or self.recovery_authorization.wave_plan_digest != plan.digest
+            or self.recovery_authorization.slot_request_digest != request.digest
+            or self.recovery_authorization.original_execution_authorization_digest
+            != execution.authorization.digest
+            or self.recovery_authorization.application_approval_digest
+            != execution.approval.approval.digest
+            or self.recovery_authorization.checkpoint_digest
+            != plan.checkpoint_digest
+            or self.recovery_planned_slot_digest
+            != expected_recovery_planned_digest
+            or self.recovery_authorization.source_user_item_digest
+            != self.recovery_raw_item.evidence_digest
+            or self.recovery_authorization.host_observation_digest
+            != self.recovery_host.digest
+            or self.result.recovery_authorization_ref
+            != self.recovery_authorization.recovery_authorization_id
+            or self.result.recovery_authorization_digest
+            != self.recovery_authorization.digest
+            or self.result.verified_prefix_digest
+            != self.recovery_authorization.verified_prefix_digest
+            or self.result.reconstructed_result_ref
+            != self.reconstructed_result.result.result_id
+            or self.result.reconstructed_result_digest
+            != self.reconstructed_result.result.digest
+            or self.result.pre_head
+            != request.expected_ledger_state["expected_ledger_head"]
+            or self.verification_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "verified_synthetic_recovery_required",
+                "synthetic recovery authority or result evidence differs",
+            )
+
+
+def issue_verified_synthetic_recovery_result(
+    result: SyntheticWaveSlotRecoveryResult,
+    *,
+    recovery_authorization: WaveSlotRecoveryAuthorization,
+    recovery_raw_item: RawPrincipalItemSnapshot,
+    recovery_host: PrincipalHostObservation,
+    recovery_time: VerifiedAuthorityTimeEvidence,
+    recovery_inspection_digest: str,
+    recovery_planned_slot_digest: str,
+    recovery_capability_digest: str,
+    reconstructed_result: VerifiedSyntheticWaveSlotResult,
+) -> VerifiedSyntheticWaveRecoveryResult:
+    material = {
+        "result_digest": result.digest,
+        "recovery_capability_digest": recovery_capability_digest,
+        "reconstructed_result_capability_digest": reconstructed_result.verification_digest,
+        "recovery_time_digest": recovery_time.verification_digest,
+    }
+    capability = VerifiedSyntheticWaveRecoveryResult(
+        result=result,
+        recovery_authorization=recovery_authorization,
+        recovery_raw_item=recovery_raw_item,
+        recovery_host=recovery_host,
+        recovery_time=recovery_time,
+        recovery_inspection_digest=recovery_inspection_digest,
+        recovery_planned_slot_digest=recovery_planned_slot_digest,
+        recovery_capability_digest=recovery_capability_digest,
+        reconstructed_result=reconstructed_result,
+        verification_digest=sha256_ref(material),
+        _token=_RECOVERY_RESULT_CAPABILITY_TOKEN,
+    )
+    capability.verify()
+    return capability
 
 
 def _token(kind: str, identifier: str) -> str:
@@ -221,6 +487,8 @@ def _time_value(time: object) -> dict[str, object]:
     return {
         **evidence._source_material(),
         "source_digest": evidence.source_digest,
+        "clock_source_digest": time.clock_observation.clock_source_digest,
+        "clock_observation_digest": time.clock_observation.observation_digest,
         "verification_digest": time.verification_digest,
     }
 
@@ -293,8 +561,25 @@ def _rebuild_approval_capability(
             source_ref=str(time_value["source_ref"]),
             source_digest=str(time_value["source_digest"]),
         )
-        verified_time = verify_authority_time_evidence(raw_time)
-        if verified_time.verification_digest != time_value["verification_digest"]:
+        raw_time.verify_source()
+        clock_observation = observe_synthetic_authority_time(
+            now_ref=raw_time.now_ref,
+            now_epoch_ns=raw_time.now_epoch_ns,
+            valid_from_ref=raw_time.valid_from_ref,
+            valid_from_epoch_ns=raw_time.valid_from_epoch_ns,
+            expires_at_ref=raw_time.expires_at_ref,
+            expires_at_epoch_ns=raw_time.expires_at_epoch_ns,
+        )
+        verified_time = verify_authority_time_evidence(clock_observation)
+        if (
+            raw_time != clock_observation.evidence
+            or clock_observation.clock_source_digest
+            != time_value["clock_source_digest"]
+            or clock_observation.observation_digest
+            != time_value["clock_observation_digest"]
+            or verified_time.verification_digest
+            != time_value["verification_digest"]
+        ):
             raise RALValidationError(
                 "wave_store_capability_invalid", "approval time capability differs"
             )
@@ -312,6 +597,320 @@ def _rebuild_approval_capability(
             raise
         raise RALValidationError(
             "wave_store_capability_invalid", "approval capability cannot be rebuilt"
+        ) from error
+
+
+def _execution_capability_evidence(
+    execution: VerifiedSlotExecutionAuthorization,
+) -> dict[str, object]:
+    execution.verify()
+    return _closed_evidence(
+        {
+            "schema": "sedb-ral.verified-slot-execution-evidence/0.1",
+            "authorization": execution.authorization.to_dict(),
+            "approval": execution.approval.approval.to_dict(),
+            "approval_capability": _approval_capability_evidence(
+                execution.approval
+            ),
+            "plan": execution.plan.to_dict(),
+            "request": execution.request.to_dict(),
+            "policy": execution.policy.to_dict(),
+            "checkpoint": execution.checkpoint,
+            "current_status": execution.current_status,
+            "raw_item": _principal_raw_value(execution.raw_item),
+            "host": _principal_host_value(execution.host),
+            "issuance_time": _time_value(execution.issuance_time),
+        }
+    )
+
+
+def _rebuild_time_capability(time_value: object):
+    if not isinstance(time_value, dict):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "time capability evidence is absent"
+        )
+    try:
+        raw_time = AuthorityTimeEvidence(
+            now_ref=str(time_value["now_ref"]),
+            now_epoch_ns=time_value["now_epoch_ns"],
+            valid_from_ref=str(time_value["valid_from_ref"]),
+            valid_from_epoch_ns=time_value["valid_from_epoch_ns"],
+            expires_at_ref=time_value["expires_at_ref"],
+            expires_at_epoch_ns=time_value["expires_at_epoch_ns"],
+            source_ref=str(time_value["source_ref"]),
+            source_digest=str(time_value["source_digest"]),
+        )
+        raw_time.verify_source()
+        clock_observation = observe_synthetic_authority_time(
+            now_ref=raw_time.now_ref,
+            now_epoch_ns=raw_time.now_epoch_ns,
+            valid_from_ref=raw_time.valid_from_ref,
+            valid_from_epoch_ns=raw_time.valid_from_epoch_ns,
+            expires_at_ref=raw_time.expires_at_ref,
+            expires_at_epoch_ns=raw_time.expires_at_epoch_ns,
+        )
+        verified_time = verify_authority_time_evidence(clock_observation)
+        if (
+            raw_time != clock_observation.evidence
+            or clock_observation.clock_source_digest
+            != time_value["clock_source_digest"]
+            or clock_observation.observation_digest
+            != time_value["clock_observation_digest"]
+            or verified_time.verification_digest
+            != time_value["verification_digest"]
+        ):
+            raise RALValidationError(
+                "wave_store_capability_invalid", "time capability differs"
+            )
+        return verified_time
+    except (KeyError, TypeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code == "wave_store_capability_invalid":
+            raise
+        raise RALValidationError(
+            "wave_store_capability_invalid", "time capability cannot be rebuilt"
+        ) from error
+
+
+def _rebuild_principal_raw(raw_value: object) -> RawPrincipalItemSnapshot:
+    if not isinstance(raw_value, dict):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "principal raw evidence is absent"
+        )
+    try:
+        return RawPrincipalItemSnapshot(
+            provider=str(raw_value["provider"]),
+            adapter_kind=str(raw_value["adapter_kind"]),
+            native_thread_id=str(raw_value["native_thread_id"]),
+            native_turn_id=str(raw_value["native_turn_id"]),
+            source_item_role=str(raw_value["source_item_role"]),
+            source_item_kind=str(raw_value["source_item_kind"]),
+            source_item_status=str(raw_value["source_item_status"]),
+            source_item_parent_thread_id=str(
+                raw_value["source_item_parent_thread_id"]
+            ),
+            source_item_parent_turn_id=str(raw_value["source_item_parent_turn_id"]),
+            source_item_ref=str(raw_value["source_item_ref"]),
+            content_bytes=canonical_bytes(raw_value["content"]),
+        )
+    except (KeyError, TypeError) as error:
+        raise RALValidationError(
+            "wave_store_capability_invalid", "principal raw evidence differs"
+        ) from error
+
+
+def _rebuild_principal_host(host_value: object) -> PrincipalHostObservation:
+    if not isinstance(host_value, dict):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "principal host evidence is absent"
+        )
+    try:
+        host = PrincipalHostObservation(
+            provider=str(host_value["provider"]),
+            adapter_kind=str(host_value["adapter_kind"]),
+            native_thread_id=str(host_value["native_thread_id"]),
+            native_turn_id=str(host_value["native_turn_id"]),
+            source_item_role=str(host_value["source_item_role"]),
+            source_item_kind=str(host_value["source_item_kind"]),
+            source_item_status=str(host_value["source_item_status"]),
+            source_item_ref=str(host_value["source_item_ref"]),
+            observed_origin=str(host_value["observed_origin"]),
+            observed_at_ref=str(host_value["observed_at_ref"]),
+            observation_ref=str(host_value["observation_ref"]),
+            digest=str(host_value["digest"]),
+        )
+        host.verify()
+        return host
+    except (KeyError, TypeError, RALValidationError) as error:
+        raise RALValidationError(
+            "wave_store_capability_invalid", "principal host evidence differs"
+        ) from error
+
+
+def _rebuild_execution_capability(
+    evidence_value: object,
+) -> VerifiedSlotExecutionAuthorization:
+    evidence = _verify_closed_evidence(
+        evidence_value, "sedb-ral.verified-slot-execution-evidence/0.1"
+    )
+    try:
+        approval = _rebuild_approval_capability(
+            evidence["approval"], evidence["approval_capability"]
+        )
+        authorization = SlotExecutionAuthorization.from_dict(
+            evidence["authorization"]
+        )
+        plan = RegistrationWavePlan.from_dict(evidence["plan"])
+        request = WaveSlotRequest.from_dict(evidence["request"])
+        policy = RegistrationWavePolicy.from_dict(evidence["policy"])
+        raw = _rebuild_principal_raw(evidence["raw_item"])
+        host = _rebuild_principal_host(evidence["host"])
+        time = _rebuild_time_capability(evidence["issuance_time"])
+        return verify_slot_execution_authorization(
+            authorization,
+            plan,
+            request,
+            approval,
+            policy,
+            evidence["checkpoint"],
+            evidence["current_status"],
+            raw,
+            host,
+            expected_principal_ref=str(authorization.principal_ref),
+            time=time,
+        )
+    except (KeyError, TypeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code == "wave_store_capability_invalid":
+            raise
+        raise RALValidationError(
+            "wave_store_capability_invalid", "JIT capability cannot be rebuilt"
+        ) from error
+
+
+def _slot_result_capability_evidence(
+    capability: VerifiedSyntheticWaveSlotResult,
+) -> dict[str, object]:
+    capability.verify()
+    return _closed_evidence(
+        {
+            "schema": "sedb-ral.verified-synthetic-slot-result-evidence/0.1",
+            "execution_capability": _execution_capability_evidence(
+                capability.execution
+            ),
+            "application_authority": capability.application_authority.authority,
+            "application_authority_attestations": sorted(
+                capability.application_authority.attestation_refs
+            ),
+            "application_authority_capability_digest": capability.application_authority.verification_digest,
+            "planned_slot_digest": capability.planned_slot_digest,
+            "prefix_plan_digest": capability.prefix_plan_digest,
+            "prefix_verification_digest": capability.prefix_verification_digest,
+            "prefix_result_digests": list(capability.prefix_result_digests),
+            "prefix_final_head": capability.prefix_final_head,
+            "prefix_event_count": capability.prefix_event_count,
+            "issuance_time": _time_value(capability.issuance_time),
+        }
+    )
+
+
+def _rebuild_slot_result_capability(
+    result_value: dict[str, object], evidence_value: object
+) -> VerifiedSyntheticWaveSlotResult:
+    evidence = _verify_closed_evidence(
+        evidence_value, "sedb-ral.verified-synthetic-slot-result-evidence/0.1"
+    )
+    try:
+        execution = _rebuild_execution_capability(
+            evidence["execution_capability"]
+        )
+        time = _rebuild_time_capability(evidence["issuance_time"])
+        authority = derive_verified_application_authority(
+            str(execution.approval.application_digest), execution, time
+        )
+        if (
+            authority.authority != evidence["application_authority"]
+            or sorted(authority.attestation_refs)
+            != evidence["application_authority_attestations"]
+            or authority.verification_digest
+            != evidence["application_authority_capability_digest"]
+        ):
+            raise RALValidationError(
+                "verified_synthetic_result_required",
+                "derived application authority differs",
+            )
+        return issue_verified_synthetic_slot_result(
+            SyntheticWaveSlotExecutionResult.from_dict(result_value),
+            execution,
+            authority,
+            planned_slot_digest=str(evidence["planned_slot_digest"]),
+            prefix_plan_digest=str(evidence["prefix_plan_digest"]),
+            prefix_verification_digest=str(
+                evidence["prefix_verification_digest"]
+            ),
+            prefix_result_digests=tuple(evidence["prefix_result_digests"]),
+            prefix_final_head=evidence["prefix_final_head"],
+            prefix_event_count=evidence["prefix_event_count"],
+            time=time,
+        )
+    except (KeyError, TypeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code in {
+            "wave_store_capability_invalid",
+            "verified_synthetic_result_required",
+        }:
+            raise
+        raise RALValidationError(
+            "verified_synthetic_result_required",
+            "synthetic result capability cannot be rebuilt",
+        ) from error
+
+
+def _recovery_result_capability_evidence(
+    capability: VerifiedSyntheticWaveRecoveryResult,
+) -> dict[str, object]:
+    capability.verify()
+    return _closed_evidence(
+        {
+            "schema": "sedb-ral.verified-synthetic-recovery-result-evidence/0.1",
+            "recovery_authorization": capability.recovery_authorization.to_dict(),
+            "recovery_raw_item": _principal_raw_value(
+                capability.recovery_raw_item
+            ),
+            "recovery_host": _principal_host_value(capability.recovery_host),
+            "recovery_time": _time_value(capability.recovery_time),
+            "recovery_inspection_digest": capability.recovery_inspection_digest,
+            "recovery_planned_slot_digest": capability.recovery_planned_slot_digest,
+            "recovery_capability_digest": capability.recovery_capability_digest,
+            "reconstructed_result": capability.reconstructed_result.result.to_dict(),
+            "reconstructed_result_capability": _slot_result_capability_evidence(
+                capability.reconstructed_result
+            ),
+        }
+    )
+
+
+def _rebuild_recovery_result_capability(
+    result_value: dict[str, object], evidence_value: object
+) -> VerifiedSyntheticWaveRecoveryResult:
+    evidence = _verify_closed_evidence(
+        evidence_value,
+        "sedb-ral.verified-synthetic-recovery-result-evidence/0.1",
+    )
+    try:
+        recovery_authorization = WaveSlotRecoveryAuthorization.from_dict(
+            evidence["recovery_authorization"]
+        )
+        reconstructed = _rebuild_slot_result_capability(
+            evidence["reconstructed_result"],
+            evidence["reconstructed_result_capability"],
+        )
+        return issue_verified_synthetic_recovery_result(
+            SyntheticWaveSlotRecoveryResult.from_dict(result_value),
+            recovery_authorization=recovery_authorization,
+            recovery_raw_item=_rebuild_principal_raw(
+                evidence["recovery_raw_item"]
+            ),
+            recovery_host=_rebuild_principal_host(evidence["recovery_host"]),
+            recovery_time=_rebuild_time_capability(evidence["recovery_time"]),
+            recovery_inspection_digest=str(
+                evidence["recovery_inspection_digest"]
+            ),
+            recovery_planned_slot_digest=str(
+                evidence["recovery_planned_slot_digest"]
+            ),
+            recovery_capability_digest=str(
+                evidence["recovery_capability_digest"]
+            ),
+            reconstructed_result=reconstructed,
+        )
+    except (KeyError, TypeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code in {
+            "wave_store_capability_invalid",
+            "verified_synthetic_result_required",
+            "verified_synthetic_recovery_required",
+        }:
+            raise
+        raise RALValidationError(
+            "verified_synthetic_recovery_required",
+            "synthetic recovery capability cannot be rebuilt",
         ) from error
 
 
@@ -554,54 +1153,86 @@ class RegistrationWaveStore:
         return WaveSlotRequest.from_dict(record["object"])
 
     def put_slot_result(self, identifier: str, result: object) -> StoreResult:
-        if not isinstance(result, SyntheticWaveSlotExecutionResult):
+        if not isinstance(result, VerifiedSyntheticWaveSlotResult):
+            if not isinstance(result, SyntheticWaveSlotExecutionResult):
+                raise RALValidationError(
+                    "synthetic_result_type_required",
+                    "production slot receipts cannot enter synthetic store",
+                )
             raise RALValidationError(
-                "synthetic_result_type_required",
-                "production slot receipts cannot enter synthetic store",
+                "verified_synthetic_result_required",
+                "plain self-sealed slot results are not durable capabilities",
             )
-        parsed = SyntheticWaveSlotExecutionResult.from_dict(result.to_dict())
+        result.verify()
+        parsed = SyntheticWaveSlotExecutionResult.from_dict(result.result.to_dict())
         return self._submit(
             kind="slot-results",
             identifier=identifier,
             object_ref=str(parsed.result_id),
             object_digest=parsed.digest,
             value=parsed.to_dict(),
+            capability_digest=result.verification_digest,
+            capability_evidence=_slot_result_capability_evidence(result),
         )
 
-    def get_slot_result(
+    def get_verified_slot_result(
         self, identifier: str
-    ) -> SyntheticWaveSlotExecutionResult | None:
+    ) -> VerifiedSyntheticWaveSlotResult | None:
         path = self._path("slot-results", identifier)
         self.context.verify_before_io("store_slot_result_read", path)
         if not path.is_file():
             return None
         record = self._verify_record(path)
-        return SyntheticWaveSlotExecutionResult.from_dict(record["object"])
+        return _rebuild_slot_result_capability(
+            record["object"], record["capability_evidence"]
+        )
+
+    def get_slot_result(
+        self, identifier: str
+    ) -> SyntheticWaveSlotExecutionResult | None:
+        capability = self.get_verified_slot_result(identifier)
+        return None if capability is None else capability.result
 
     def put_recovery_result(self, identifier: str, result: object) -> StoreResult:
-        if not isinstance(result, SyntheticWaveSlotRecoveryResult):
+        if not isinstance(result, VerifiedSyntheticWaveRecoveryResult):
+            if not isinstance(result, SyntheticWaveSlotRecoveryResult):
+                raise RALValidationError(
+                    "synthetic_result_type_required",
+                    "production recovery receipts cannot enter synthetic store",
+                )
             raise RALValidationError(
-                "synthetic_result_type_required",
-                "production recovery receipts cannot enter synthetic store",
+                "verified_synthetic_recovery_required",
+                "plain self-sealed recovery results are not durable capabilities",
             )
-        parsed = SyntheticWaveSlotRecoveryResult.from_dict(result.to_dict())
+        result.verify()
+        parsed = SyntheticWaveSlotRecoveryResult.from_dict(result.result.to_dict())
         return self._submit(
             kind="recovery-results",
             identifier=identifier,
             object_ref=str(parsed.result_id),
             object_digest=parsed.digest,
             value=parsed.to_dict(),
+            capability_digest=result.verification_digest,
+            capability_evidence=_recovery_result_capability_evidence(result),
         )
 
-    def get_recovery_result(
+    def get_verified_recovery_result(
         self, identifier: str
-    ) -> SyntheticWaveSlotRecoveryResult | None:
+    ) -> VerifiedSyntheticWaveRecoveryResult | None:
         path = self._path("recovery-results", identifier)
         self.context.verify_before_io("store_recovery_result_read", path)
         if not path.is_file():
             return None
         record = self._verify_record(path)
-        return SyntheticWaveSlotRecoveryResult.from_dict(record["object"])
+        return _rebuild_recovery_result_capability(
+            record["object"], record["capability_evidence"]
+        )
+
+    def get_recovery_result(
+        self, identifier: str
+    ) -> SyntheticWaveSlotRecoveryResult | None:
+        capability = self.get_verified_recovery_result(identifier)
+        return None if capability is None else capability.result
 
     def _verify_record(self, path: Path) -> dict[str, object]:
         value = _read_object(path, "wave_store_record_invalid")
@@ -679,6 +1310,12 @@ class RegistrationWaveStore:
             observed_capability_digest = rebuilt.verification_digest
         elif kind == "approvals":
             rebuilt = _rebuild_approval_capability(obj, capability_evidence)
+            observed_capability_digest = rebuilt.verification_digest
+        elif kind == "slot-results":
+            rebuilt = _rebuild_slot_result_capability(obj, capability_evidence)
+            observed_capability_digest = rebuilt.verification_digest
+        elif kind == "recovery-results":
+            rebuilt = _rebuild_recovery_result_capability(obj, capability_evidence)
             observed_capability_digest = rebuilt.verification_digest
         else:
             observed_capability_digest = None

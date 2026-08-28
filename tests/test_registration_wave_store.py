@@ -137,7 +137,7 @@ def test_candidate_requires_verified_capability_and_manifest_stays_sanitized(tmp
     assert store.verify()["record_count"] == 1
 
 
-def test_synthetic_result_paths_reject_production_receipt_types(tmp_path):
+def test_synthetic_result_paths_reject_production_and_plain_result_types(tmp_path):
     selected_context = store_context(tmp_path)
     store = RegistrationWaveStore(
         selected_context, selected_context.target_root, digest("wave")
@@ -152,22 +152,22 @@ def test_synthetic_result_paths_reject_production_receipt_types(tmp_path):
             "slot:1", WaveSlotRecoveryReceipt.from_dict(valid_recovery_receipt())
         )
 
-    assert (
+    with pytest.raises(
+        RALValidationError, match="verified_synthetic_result_required"
+    ):
         store.put_slot_result(
             "slot:1",
             SyntheticWaveSlotExecutionResult.from_dict(valid_synthetic_result()),
-        ).kind
-        == "created"
-    )
-    assert (
+        )
+    with pytest.raises(
+        RALValidationError, match="verified_synthetic_recovery_required"
+    ):
         store.put_recovery_result(
             "slot:1",
             SyntheticWaveSlotRecoveryResult.from_dict(
                 valid_synthetic_recovery_result()
             ),
-        ).kind
-        == "created"
-    )
+        )
 
 
 def test_request_and_verified_approval_are_create_only(tmp_path):

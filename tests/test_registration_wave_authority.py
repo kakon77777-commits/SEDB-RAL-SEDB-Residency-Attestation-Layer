@@ -14,6 +14,7 @@ from sedb_ral.registration_wave_authority import (
     VerifiedApplicationApproval,
     VerifiedAuthorityTimeEvidence,
     VerifiedSlotExecutionAuthorization,
+    observe_synthetic_authority_time,
     verify_application_approval,
     verify_authority_time_evidence,
     verify_slot_execution_authorization,
@@ -54,14 +55,13 @@ def time_evidence(
     *, now: int = 200, valid_from: int = 100, expires_at: int | None = 300
 ) -> VerifiedAuthorityTimeEvidence:
     return verify_authority_time_evidence(
-        AuthorityTimeEvidence.sealed(
+        observe_synthetic_authority_time(
             now_ref="time:now",
             now_epoch_ns=now,
             valid_from_ref="time:start",
             valid_from_epoch_ns=valid_from,
             expires_at_ref=None if expires_at is None else "time:end",
             expires_at_epoch_ns=expires_at,
-            source_ref="clock:synthetic",
         )
     )
 
@@ -289,7 +289,22 @@ def test_changed_clock_mapping_cannot_reuse_source_digest():
     )
 
     with pytest.raises(RALValidationError, match="authority_time_source_mismatch"):
-        verify_authority_time_evidence(replace(observed, now_epoch_ns=201))
+        replace(observed, now_epoch_ns=201).verify_source()
+
+
+def test_attacker_selected_clock_source_cannot_mint_verified_time():
+    attacker = AuthorityTimeEvidence.sealed(
+        now_ref="time:attacker-now",
+        now_epoch_ns=200,
+        valid_from_ref="time:start",
+        valid_from_epoch_ns=100,
+        expires_at_ref="time:end",
+        expires_at_epoch_ns=300,
+        source_ref="clock:attacker-controlled",
+    )
+
+    with pytest.raises(RALValidationError, match="authority_clock_source_mismatch"):
+        verify_authority_time_evidence(attacker)
 
 
 def test_changed_approval_status_invalidates_issued_capability(tmp_path):

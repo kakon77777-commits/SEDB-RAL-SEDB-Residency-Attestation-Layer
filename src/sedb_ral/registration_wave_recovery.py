@@ -21,7 +21,11 @@ from .registration_wave_models import (
     SyntheticWaveSlotRecoveryResult,
     WaveSlotRecoveryAuthorization,
 )
-from .registration_wave_store import RegistrationWaveStore
+from .registration_wave_store import (
+    RegistrationWaveStore,
+    issue_verified_synthetic_recovery_result,
+    issue_verified_synthetic_slot_result,
+)
 
 _RECOVERY_TOKEN = object()
 
@@ -437,6 +441,20 @@ def recover_synthetic_wave_slot_result(
     execution_result = _reconstruct_execution_result(
         planned, events, core.event_ids, core.final_head
     )
+    verified_execution_result = issue_verified_synthetic_slot_result(
+        execution_result,
+        planned.execution_authorization,
+        planned.application_authority,
+        planned_slot_digest=planned.plan_digest,
+        prefix_plan_digest=planned.result_prefix.plan_digest,
+        prefix_verification_digest=planned.result_prefix.verification_digest,
+        prefix_result_digests=tuple(
+            value.digest for value in planned.result_prefix.results
+        ),
+        prefix_final_head=planned.result_prefix.final_head,
+        prefix_event_count=planned.result_prefix.ledger_event_count,
+        time=planned.policy_time,
+    )
     recovery = SyntheticWaveSlotRecoveryResult.sealed(
         {
             "schema": "sedb-ral.synthetic-wave-slot-recovery-result/0.1",
@@ -457,7 +475,20 @@ def recover_synthetic_wave_slot_result(
             "not_claimed": ["production_recovery", "accepted_admission"],
         }
     )
-    stored = store.put_recovery_result(str(planned.slot_request.slot_id), recovery)
+    verified_recovery = issue_verified_synthetic_recovery_result(
+        recovery,
+        recovery_authorization=authorization.authorization,
+        recovery_raw_item=authorization.raw_item,
+        recovery_host=authorization.host,
+        recovery_time=authorization.issuance_time,
+        recovery_inspection_digest=authorization.inspection_digest,
+        recovery_planned_slot_digest=authorization.planned_slot_digest,
+        recovery_capability_digest=authorization.verification_digest,
+        reconstructed_result=verified_execution_result,
+    )
+    stored = store.put_recovery_result(
+        str(planned.slot_request.slot_id), verified_recovery
+    )
     if stored.kind == "created":
         context.journal.record("synthetic_receipt_writes", str(recovery.result_id))
     return recovery

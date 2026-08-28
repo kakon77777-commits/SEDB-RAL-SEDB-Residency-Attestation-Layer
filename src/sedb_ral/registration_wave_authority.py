@@ -18,6 +18,17 @@ _APPROVAL_TOKEN = object()
 _EXECUTION_TOKEN = object()
 _TIME_TOKEN = object()
 _APPLICATION_AUTHORITY_TOKEN = object()
+_CLOCK_OBSERVATION_TOKEN = object()
+_SYNTHETIC_CLOCK_SOURCE_REF = "clock:synthetic"
+_SYNTHETIC_CLOCK_SOURCE_DIGEST = sha256_ref(
+    {
+        "schema": "sedb-ral.authority-clock-source-profile/0.1",
+        "source_ref": _SYNTHETIC_CLOCK_SOURCE_REF,
+        "provider": "deterministic_fixture",
+        "mode": "synthetic_only",
+        "live_clock": "NOT_RUN",
+    }
+)
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -136,8 +147,76 @@ class AuthorityTimeEvidence:
 
 
 @dataclass(frozen=True)
+class VerifiedAuthorityClockObservation:
+    evidence: AuthorityTimeEvidence
+    clock_source_digest: str
+    observation_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _CLOCK_OBSERVATION_TOKEN:
+            raise RALValidationError(
+                "authority_clock_source_mismatch",
+                "clock observation was not verifier-issued",
+            )
+
+    def verify(self) -> None:
+        self.evidence.verify_source()
+        material = {
+            "schema": "sedb-ral.verified-authority-clock-observation/0.1",
+            "clock_source_ref": self.evidence.source_ref,
+            "clock_source_digest": self.clock_source_digest,
+            "time_evidence_digest": self.evidence.digest,
+        }
+        if (
+            self.evidence.source_ref != _SYNTHETIC_CLOCK_SOURCE_REF
+            or self.clock_source_digest != _SYNTHETIC_CLOCK_SOURCE_DIGEST
+            or self.observation_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "authority_clock_source_mismatch",
+                "clock observation differs from the pinned synthetic source",
+            )
+
+
+def observe_synthetic_authority_time(
+    *,
+    now_ref: str,
+    now_epoch_ns: int,
+    valid_from_ref: str,
+    valid_from_epoch_ns: int,
+    expires_at_ref: str | None,
+    expires_at_epoch_ns: int | None,
+) -> VerifiedAuthorityClockObservation:
+    evidence = AuthorityTimeEvidence.sealed(
+        now_ref=now_ref,
+        now_epoch_ns=now_epoch_ns,
+        valid_from_ref=valid_from_ref,
+        valid_from_epoch_ns=valid_from_epoch_ns,
+        expires_at_ref=expires_at_ref,
+        expires_at_epoch_ns=expires_at_epoch_ns,
+        source_ref=_SYNTHETIC_CLOCK_SOURCE_REF,
+    )
+    material = {
+        "schema": "sedb-ral.verified-authority-clock-observation/0.1",
+        "clock_source_ref": evidence.source_ref,
+        "clock_source_digest": _SYNTHETIC_CLOCK_SOURCE_DIGEST,
+        "time_evidence_digest": evidence.digest,
+    }
+    observation = VerifiedAuthorityClockObservation(
+        evidence=evidence,
+        clock_source_digest=_SYNTHETIC_CLOCK_SOURCE_DIGEST,
+        observation_digest=sha256_ref(material),
+        _token=_CLOCK_OBSERVATION_TOKEN,
+    )
+    observation.verify()
+    return observation
+
+
+@dataclass(frozen=True)
 class VerifiedAuthorityTimeEvidence:
     evidence: AuthorityTimeEvidence
+    clock_observation: VerifiedAuthorityClockObservation
     verification_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -165,9 +244,17 @@ class VerifiedAuthorityTimeEvidence:
         valid_from_ref: str | None = None,
         expires_at_ref: str | None = None,
     ) -> None:
-        self.evidence.verify_source()
+        self.clock_observation.verify()
+        if self.clock_observation.evidence != self.evidence:
+            raise RALValidationError(
+                "authority_clock_source_mismatch",
+                "time capability and clock observation differ",
+            )
         if self.verification_digest != sha256_ref(
-            {"authority_time_evidence_digest": self.evidence.digest}
+            {
+                "authority_time_evidence_digest": self.evidence.digest,
+                "clock_observation_digest": self.clock_observation.observation_digest,
+            }
         ):
             raise RALValidationError(
                 "verified_authority_time_required",
@@ -190,7 +277,12 @@ class VerifiedAuthorityTimeEvidence:
                 "issuance time capability is missing",
             )
         issuance.verify()
-        if self.evidence.source_ref != issuance.evidence.source_ref:
+        if (
+            self.clock_observation.clock_source_digest
+            != issuance.clock_observation.clock_source_digest
+            or self.clock_observation.evidence.source_ref
+            != issuance.clock_observation.evidence.source_ref
+        ):
             raise RALValidationError(
                 "authority_time_source_mismatch",
                 "fresh and issuance clock sources differ",
@@ -205,18 +297,23 @@ class VerifiedAuthorityTimeEvidence:
 
 
 def verify_authority_time_evidence(
-    evidence: AuthorityTimeEvidence,
+    observation: VerifiedAuthorityClockObservation | AuthorityTimeEvidence,
 ) -> VerifiedAuthorityTimeEvidence:
-    if not isinstance(evidence, AuthorityTimeEvidence):
+    if not isinstance(observation, VerifiedAuthorityClockObservation):
         raise RALValidationError(
-            "verified_authority_time_required",
-            "authority time source observation is missing",
+            "authority_clock_source_mismatch",
+            "authority time requires the pinned verifier-issued clock observation",
         )
-    evidence.verify_source()
+    observation.verify()
+    evidence = observation.evidence
     return VerifiedAuthorityTimeEvidence(
         evidence=evidence,
+        clock_observation=observation,
         verification_digest=sha256_ref(
-            {"authority_time_evidence_digest": evidence.digest}
+            {
+                "authority_time_evidence_digest": evidence.digest,
+                "clock_observation_digest": observation.observation_digest,
+            }
         ),
         _token=_TIME_TOKEN,
     )
@@ -392,6 +489,13 @@ class VerifiedApplicationApproval:
 class VerifiedSlotExecutionAuthorization:
     authorization: SlotExecutionAuthorization
     approval: VerifiedApplicationApproval
+    plan: RegistrationWavePlan
+    request: WaveSlotRequest
+    policy: RegistrationWavePolicy
+    checkpoint: dict[str, object]
+    current_status: dict[str, object]
+    raw_item: RawPrincipalItemSnapshot = field(repr=False)
+    host: PrincipalHostObservation
     request_digest: str
     plan_digest: str
     current_status_digest: str
@@ -410,6 +514,44 @@ class VerifiedSlotExecutionAuthorization:
     def verify(self) -> None:
         self.approval.verify()
         self.issuance_time.verify()
+        self.host.verify()
+        expected_intent = {
+            "schema": "sedb-ral.registration-slot-execution-intent/0.1",
+            "principal_ref": self.authorization.principal_ref,
+            "wave_plan_ref": f"registration-wave-plan:{self.plan.wave_id}",
+            "wave_plan_digest": self.plan.digest,
+            "slot_id": self.request.slot_id,
+            "slot_index": self.request.slot_index,
+            "operation_request_ref": self.request.request_id,
+            "operation_request_digest": self.request.digest,
+            "application_approval_ref": self.approval.approval.approval_id,
+            "application_approval_digest": self.approval.approval.digest,
+            "policy_ref": self.plan.policy_ref,
+            "policy_digest": self.plan.policy_digest,
+            "checkpoint_ref": self.plan.checkpoint_ref,
+            "checkpoint_digest": self.plan.checkpoint_digest,
+            "expected_ledger_head": self.request.expected_ledger_state[
+                "expected_ledger_head"
+            ],
+            "registry_control_digest": self.plan.registry_control_digest,
+        }
+        _verify_user_item(self.raw_item, self.host, expected_intent)
+        if (
+            self.authorization.principal_ref
+            != self.approval.approval.principal_ref
+            or self.authorization.wave_plan_digest != self.plan.digest
+            or self.authorization.operation_request_digest != self.request.digest
+            or self.authorization.application_approval_digest
+            != self.approval.approval.digest
+            or self.policy.digest != self.plan.policy_digest
+            or self.checkpoint.get("checkpoint_digest")
+            != self.plan.checkpoint_digest
+            or sha256_ref(self.current_status) != self.current_status_digest
+        ):
+            raise RALValidationError(
+                "verified_slot_execution_required",
+                "stored JIT evidence differs from its plan and approval",
+            )
         material = {
             "authorization_digest": self.authorization.digest,
             "approval_capability_digest": self.approval.verification_digest,
@@ -417,6 +559,8 @@ class VerifiedSlotExecutionAuthorization:
             "plan_digest": self.plan_digest,
             "current_status_digest": self.current_status_digest,
             "issuance_time_digest": self.issuance_time.verification_digest,
+            "raw_item_digest": self.raw_item.evidence_digest,
+            "host_observation_digest": self.host.digest,
         }
         if (
             self.application_approval_digest != self.approval.approval.digest
@@ -497,7 +641,9 @@ class VerifiedApplicationAuthority:
             "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if (
-            approval.application_digest != self.application_digest
+            execution.authorization.principal_ref
+            != approval.approval.principal_ref
+            or approval.application_digest != self.application_digest
             or approval.application.get("requested_scopes")
             != ["registry.application.accept"]
             or self.authority != expected_authority
@@ -776,6 +922,7 @@ def verify_slot_execution_authorization(
     _verify_user_item(principal_item, host_observation, expected_intent)
     if (
         parsed.principal_ref != expected_principal_ref
+        or parsed.principal_ref != approval.approval.principal_ref
         or parsed.wave_plan_ref != expected_intent["wave_plan_ref"]
         or parsed.wave_plan_digest != parsed_plan.digest
         or parsed.slot_id != request.slot_id
@@ -823,10 +970,19 @@ def verify_slot_execution_authorization(
         "plan_digest": parsed_plan.digest,
         "current_status_digest": status_digest,
         "issuance_time_digest": time.verification_digest,
+        "raw_item_digest": principal_item.evidence_digest,
+        "host_observation_digest": host_observation.digest,
     }
     return VerifiedSlotExecutionAuthorization(
         authorization=parsed,
         approval=approval,
+        plan=parsed_plan,
+        request=request,
+        policy=parsed_policy,
+        checkpoint=checkpoint_value,
+        current_status=status,
+        raw_item=principal_item,
+        host=host_observation,
         request_digest=request.digest,
         plan_digest=parsed_plan.digest,
         current_status_digest=status_digest,

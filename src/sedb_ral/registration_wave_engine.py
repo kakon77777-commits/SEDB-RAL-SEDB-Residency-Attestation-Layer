@@ -30,7 +30,10 @@ from .registration_wave_policy import (
     registration_wave_status,
     require_wave_execution,
 )
-from .registration_wave_store import RegistrationWaveStore
+from .registration_wave_store import (
+    RegistrationWaveStore,
+    issue_verified_synthetic_slot_result,
+)
 from .registry_root import RegistryStorage
 
 _PLANNED_TOKEN = object()
@@ -129,24 +132,29 @@ def _synthetic_prefix_material(
         if verification.status is LedgerStatus.EMPTY
         else read_verified_events(canonical_root, str(final_head))
     )
-    observed_results = tuple(
-        store.get_slot_result(f"slot:{index}") for index in range(1, 4)
+    observed_capabilities = tuple(
+        store.get_verified_slot_result(f"slot:{index}") for index in range(1, 4)
     )
     seen_missing = False
     results: list[SyntheticWaveSlotExecutionResult] = []
-    for result in observed_results:
-        if result is None:
+    capabilities = []
+    for capability in observed_capabilities:
+        if capability is None:
             seen_missing = True
         elif seen_missing:
             raise RALValidationError(
                 "wave_predecessor_missing", "synthetic result prefix has a gap"
             )
         else:
-            results.append(result)
+            capability.verify()
+            capabilities.append(capability)
+            results.append(capability.result)
     cursor = 0
     previous: SyntheticWaveSlotExecutionResult | None = None
     evidence: list[dict[str, object]] = []
-    for index, result in enumerate(results, start=1):
+    for index, (result, capability) in enumerate(
+        zip(results, capabilities, strict=True), start=1
+    ):
         request = store.get_slot_request(f"slot:{index}")
         if request is None:
             raise RALValidationError(
@@ -165,8 +173,20 @@ def _synthetic_prefix_material(
         previous_head = None if previous is None else previous.post_head
         predecessor_ref = None if previous is None else previous.result_id
         predecessor_digest = None if previous is None else previous.digest
+        prior_material = {
+            "plan_digest": plan.digest,
+            "evidence": list(evidence),
+            "final_head": previous_head,
+            "ledger_event_count": cursor,
+        }
         if (
-            result.wave_plan_digest != plan.digest
+            capability.prefix_plan_digest != plan.digest
+            or capability.prefix_verification_digest != sha256_ref(prior_material)
+            or capability.prefix_result_digests
+            != tuple(value.digest for value in results[: index - 1])
+            or capability.prefix_final_head != previous_head
+            or capability.prefix_event_count != cursor
+            or result.wave_plan_digest != plan.digest
             or result.slot_id != slot["slot_id"]
             or result.slot_index != index
             or result.slot_request_ref != request.request_id
@@ -629,7 +649,23 @@ def simulate_wave_slot(
         "not_claimed": ["production_admission", "live_limen_resolution"],
     }
     result = SyntheticWaveSlotExecutionResult.sealed(material)
-    stored = store.put_slot_result(str(planned.slot_request.slot_id), result)
+    verified_result = issue_verified_synthetic_slot_result(
+        result,
+        planned.execution_authorization,
+        planned.application_authority,
+        planned_slot_digest=planned.plan_digest,
+        prefix_plan_digest=planned.result_prefix.plan_digest,
+        prefix_verification_digest=planned.result_prefix.verification_digest,
+        prefix_result_digests=tuple(
+            value.digest for value in planned.result_prefix.results
+        ),
+        prefix_final_head=planned.result_prefix.final_head,
+        prefix_event_count=planned.result_prefix.ledger_event_count,
+        time=time,
+    )
+    stored = store.put_slot_result(
+        str(planned.slot_request.slot_id), verified_result
+    )
     if receipt.committed:
         for event_id in receipt.event_ids:
             context.journal.record("synthetic_ledger_writes", f"ledger-event:{event_id}")

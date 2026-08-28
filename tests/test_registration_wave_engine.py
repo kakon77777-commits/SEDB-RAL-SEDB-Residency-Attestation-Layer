@@ -719,3 +719,66 @@ def test_verified_synthetic_prefix_advances_exactly_slot_one_two_three(
     assert prefix.final_head == results[-1].post_head
     assert prefix.ledger_event_count == 12
     assert len(read_verified_events(ledger_root, prefix.final_head)) == 12
+
+
+@pytest.mark.parametrize("gate", ("store", "prefix"))
+def test_resealed_slot_result_cannot_substitute_jit_or_approval(
+    tmp_path, published_storage, gate
+):
+    selected_plan, _, _, policy_context, candidate, request, authorization = (
+        setup_slot_one(tmp_path, published_storage)
+    )
+    context = engine_context(tmp_path)
+    context.target_root.mkdir()
+    store = store_for_engine(context, selected_plan.digest)
+    ledger_root = context.target_root / "ledger"
+    prefix = verify_synthetic_wave_result_prefix(
+        context, selected_plan, store, ledger_root
+    )
+    planned = plan_wave_slot(
+        context,
+        candidate=candidate,
+        wave_plan=selected_plan,
+        slot_request=request,
+        execution_authorization=authorization,
+        result_prefix=prefix,
+        policy_context=policy_context,
+        policy_storage=published_storage,
+        policy_time=policy_time(),
+        application_authority=verified_application_authority(
+            candidate, authorization
+        ),
+        ctcl_receipt=CTCL,
+        ledger_root=ledger_root,
+        staging_parent=context.target_root / "staging-result-capability",
+    )
+    simulate_wave_slot(context, planned, store, time=policy_time())
+    path = next((store.root / "records/slot-results").glob("*.json"))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    result_value = dict(record["object"])
+    result_value.pop("result_digest")
+    result_value.update(
+        {
+            "execution_authorization_ref": "execution-authorization:attacker",
+            "execution_authorization_digest": digest("attacker-jit"),
+            "application_approval_ref": "approval:attacker",
+            "application_approval_digest": digest("attacker-approval"),
+        }
+    )
+    forged = SyntheticWaveSlotExecutionResult.sealed(result_value)
+    record["object"] = forged.to_dict()
+    record["object_digest"] = forged.digest
+    record["record_digest"] = sha256_ref(
+        {key: value for key, value in record.items() if key != "record_digest"}
+    )
+    path.write_bytes(canonical_bytes(record))
+
+    with pytest.raises(
+        RALValidationError, match="verified_synthetic_result_required"
+    ):
+        if gate == "store":
+            store.verify()
+        else:
+            verify_synthetic_wave_result_prefix(
+                context, selected_plan, store, ledger_root
+            )

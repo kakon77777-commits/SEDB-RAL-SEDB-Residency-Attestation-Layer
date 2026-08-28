@@ -23,10 +23,10 @@ import sedb_ral.registration_wave_policy as policy_module
 from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registration_wave_authority import (
-    AuthorityTimeEvidence,
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
     VerifiedApplicationApproval,
+    observe_synthetic_authority_time,
     verify_application_approval,
     verify_authority_time_evidence,
 )
@@ -80,14 +80,13 @@ def published_storage(tmp_path):
 
 def policy_time(now: int = 200, *, expires_at: int = 300):
     return verify_authority_time_evidence(
-        AuthorityTimeEvidence.sealed(
+        observe_synthetic_authority_time(
             now_ref="time:policy-now",
             now_epoch_ns=now,
             valid_from_ref="ctcl:instant:policy-start",
             valid_from_epoch_ns=100,
             expires_at_ref="ctcl:instant:policy-end",
             expires_at_epoch_ns=expires_at,
-            source_ref="clock:synthetic",
         )
     )
 
