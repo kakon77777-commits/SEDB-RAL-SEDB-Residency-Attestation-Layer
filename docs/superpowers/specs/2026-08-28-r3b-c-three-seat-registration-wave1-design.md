@@ -156,6 +156,20 @@ runtime tag, or another task's binding carries zero identity weight.
 A stale or cross-task turn, missing item, unresolved current task, or locator
 collision stops that slot without affecting the other prepared candidates.
 
+### 6.1 Canonical `codex_thread` locator grammar
+
+Wave 1 accepts only the host-observed canonical lowercase UUID text form:
+
+```text
+^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+```
+
+The parser rejects uppercase hex, braces, whitespace, Unicode hyphens, URI or
+path prefixes, short forms, and any normalized substitute. It never casefolds a
+locator into another identity. Exact canonical duplicates enter the existing
+address-collision gate; noncanonical or confusable text is invalid before
+collision evaluation.
+
 ## 7. Preparation and external staging
 
 Application preparation is noncanonical and performs no production ledger
@@ -194,14 +208,97 @@ different application.
 No peer relay, remembered approval, model-generated token, or registrar
 signature substitutes for principal approval.
 
+### 8.1 Principal application approval
+
+Each application uses a closed `principal-application-approval/0.1` artifact:
+
+```text
+approval_id
+principal_ref
+application_ref
+application_digest
+source_user_item_ref
+source_user_item_digest
+host_observation_ref
+host_observation_digest
+approved_scopes = [registration.application.approve]
+valid_from_ref
+expires_at_ref | null
+status = active | revoked | expired | suspended
+revoked_by_ref | null
+not_claimed
+approval_digest
+```
+
+The verifier requires host-observed `role=user` and the exact principal item
+bytes/digest. Assistant output, registrar output, relay text, remembered
+approval, or a model-generated principal token cannot be verified approval.
+The artifact approves only the immutable application digest.
+
+### 8.2 Just-in-time slot execution authorization
+
+Canonical append requires a separate
+`registration-slot-execution-authorization/0.1` artifact created after the
+current pre-head/checkpoint is known:
+
+```text
+execution_authorization_id
+principal_ref
+wave_plan_ref + wave_plan_digest
+slot_id + slot_index
+operation_request_ref + operation_request_digest
+application_approval_ref + application_approval_digest
+policy_ref + policy_digest
+checkpoint_ref + checkpoint_digest
+expected_ledger_head
+registry_control_digest
+valid_from_ref + expires_at_ref
+status + revoked_by_ref
+source_user_item_ref + source_user_item_digest
+host_observation_ref + host_observation_digest
+execution_authorization_digest
+```
+
+Application approval cannot execute a slot by itself. Every slot needs a fresh
+execution authorization. The registrar-management applicant cannot author or
+verify either principal artifact and cannot insert assistant/relay evidence
+into the verified principal evidence set.
+
 ## 9. Production policy activation
 
 The current production registrar extension is `active_dormant`: inspect and
 status are enabled; intake and execution are disabled.
 
 R3B-C must append a new versioned policy and active-policy receipt before any
-production intake or execution. The policy is minimal and time/scope bounded
-to Wave 1:
+production intake or execution. Existing dormant policy and activation bytes
+remain immutable.
+
+RAL owns these closed contracts:
+
+```text
+registration-wave-policy/0.1
+registration-wave-policy-activation-request/0.1
+registration-wave-policy-activation-authority/0.1
+registration-wave-policy-activation-receipt/0.1
+registration-wave-terminal-event/0.1
+```
+
+Exact production placement is:
+
+```text
+policies/wave1-policy-{policy-digest-suffix}.json
+active-policy/00000000000000000001.json
+active-policy/00000000000000000002.json  # later continuation/terminal transition
+```
+
+The sequence number is fixed-width decimal and create-only. Every active-policy
+record binds its predecessor record ref/digest, dormant policy digest, Wave 1
+policy digest, production registry generation, extension index, checkpoint,
+principal activation authority, activation request, status, and record digest.
+The first Wave 1 activation succeeds only when sequence 0 is the verified
+dormant record; no in-place update or unindexed second active policy is allowed.
+
+The Wave 1 policy is minimal and time/scope bounded:
 
 - exactly three approved application digests;
 - exactly three host-observed `codex_thread` locators;
@@ -212,8 +309,57 @@ to Wave 1:
 - explicit expiration or terminal completion after slot 3 or a stopped wave.
 
 Policy activation is an append-only control event, not a ledger identity fact.
-If policy activation is missing, stale, mismatched, or unreceipted, every Wave
-1 operation refuses.
+Verified production status exposes active-policy ref/digest, control sequence,
+wave status, policy expiry, registry generation and checkpoint digest. Every
+intake, wave plan, operation request, execution authorization and slot receipt
+binds those current values.
+
+Activation requires exact principal authority, pre/post readback, protected
+ACL, reparse/hard-link/alternate-stream guards, and create-only writes. Missing,
+stale, mismatched, expired, terminal or unreceipted policy refuses intake,
+planning and execution. Base `inspect`, `status`, checkpoint and recovery
+readback remain available so a policy failure cannot disable diagnosis.
+
+### 9.1 Registration wave plan and slot binding
+
+One closed `registration-wave-plan/0.1` binds the complete order before any
+slot execution:
+
+```text
+wave_id
+ordered_slots[3] {
+  slot_id
+  slot_index = 1 | 2 | 3
+  application_ref + application_digest
+  host_observation_ref + host_observation_digest
+}
+initial_ledger_state
+registry_control_digest
+registry_generation_digest
+policy_ref + policy_digest
+checkpoint_ref + checkpoint_digest
+terminal_boundary
+not_claimed
+wave_plan_digest
+```
+
+Slot indices are unique and contiguous; application and host-observation
+digests are unique. Reordering or replacing one slot changes the plan digest.
+The plan carries no rank, seniority or authority semantics.
+
+Every `registration-wave-slot-request/0.1` binds:
+
+- wave plan ref/digest;
+- exact slot ID/index and application digest;
+- exact predecessor slot receipt ref/digest, null only for slot 1;
+- expected ledger state;
+- policy, checkpoint, registry-generation and control digests; and
+- its own request digest.
+
+The next executable slot is derived from verified canonical event and slot
+receipt prefixes. A current ledger head alone is insufficient. Slot 3 against
+H1 is refused when the verified slot-2 receipt/prefix is absent, even if H1 is
+otherwise current.
 
 ## 10. Sequential canonical admission
 
@@ -225,6 +371,18 @@ Before slot 1, the registrar verifies:
   plan explicitly states otherwise; and
 - all applicant/approval machine gates.
 
+The initial state H0 is typed and unambiguous:
+
+```text
+expected_ledger_head = null
+CLI spelling = GENESIS
+ledger_event_count = 0
+registry_control_digest = separately pinned non-null digest
+```
+
+`GENESIS`, null ledger head and the registry control/head-zero digest are not
+interchangeable values. H1/H2/H3 are canonical chain digests.
+
 For each slot:
 
 1. rebuild and validate the full candidate event chain in isolated staging;
@@ -234,6 +392,31 @@ For each slot:
 5. rebuild and validate application/resident/instance/address/binding views;
 6. verify production counts and zero private/network/external effects; and
 7. only then advance to the next slot.
+
+One `registration-wave-slot-receipt/0.1` records:
+
+- wave/slot/request/execution-authorization/application-approval digests;
+- pre-head, post-head and event-count delta;
+- every appended event ID/digest in canonical order;
+- commit receipt and operation receipt refs/digests;
+- application/resident/instance/address/binding projection digests;
+- LIMEN B6A result ref/digest or explicit pending status;
+- production count/effect deltas; and
+- receipt status plus receipt digest.
+
+Receipt status is closed:
+
+```text
+accepted
+canonical_committed_readback_failed
+recovered
+refused_no_append
+```
+
+`accepted` requires canonical append, projection rebuild and B6A readback.
+When canonical events committed but projection/B6A readback fails, the receipt
+is `canonical_committed_readback_failed`, the wave stops, and no later slot may
+execute. It must not be rewritten as no append or as accepted.
 
 Slot 2 must use slot 1's accepted head. Slot 3 must use slot 2's accepted head.
 A stale expected head or concurrent winner stops before append.
@@ -254,8 +437,33 @@ atomic. Correction, withdrawal, address suspension, authority revocation, or
 future opt-out uses append-only events under separate authority.
 
 Crash during candidate staging changes no canonical data. Crash after a
-successful append is resolved by replay/readback and idempotent commit-receipt
-lookup, never by blindly appending the same resident again.
+successful append is resolved by replay/readback, never by blindly appending
+the same resident again.
+
+If the complete canonical event prefix exists but the outer slot receipt was
+not durably observed, status is `recovery_required`. The system must not claim
+the missing receipt already existed. A separately principal-authorized
+`registration-wave-slot-recovery-receipt/0.1` binds the verified event prefix,
+pre/post heads, application digest, original execution authorization, current
+checkpoint/readback and the newly reconstructed outer evidence. Forged or
+partial prefixes remain recovery failures.
+
+Wave policy states are:
+
+```text
+active       next exact slot may execute before expiry
+stopped      no pending slot may execute
+completed    slot 3 and final readback accepted
+expired      no intake/plan/execute; inspect/recovery only
+revoked      no intake/plan/execute; inspect/recovery only
+```
+
+A deliberate stop appends a terminal event and retains pending applications.
+Resuming pending slots requires a new append-only continuation policy and active
+policy record, fresh checkpoint/control/current-head readback, and fresh
+per-slot execution authorization. An unchanged application approval may remain
+valid only when its exact digest is unchanged and the approval is still active,
+unexpired and unrevoked; it never substitutes for the fresh execution gate.
 
 ## 12. LIMEN B6A public readback
 
@@ -304,6 +512,22 @@ and the combined three-resident collision scan pass.
 | W1-024 | production/effect counters | exactly three app/resident/address chains; private/network/external zero |
 | W1-025 | recovery checkpoint/readback | exact final head and projection reproducible |
 | W1-026 | repeated full synthetic wave | deterministic except explicit opaque IDs supplied as fixtures |
+| W1-027 | slot 3 against current H1 without slot-2 receipt | order violation; no append |
+| W1-028 | changed/reordered/duplicate slot | wave-plan digest/schema refusal |
+| W1-029 | missing/substituted predecessor receipt | no append |
+| W1-030 | forged/assistant/relayed principal approval | unverified; no preparation authority |
+| W1-031 | approval A used for application B | exact-digest refusal |
+| W1-032 | application approval without JIT execution authorization | no append |
+| W1-033 | registrar self-approval evidence | refused |
+| W1-034 | missing/stale/expired/unreceipted active policy | intake/plan/execute refused; status works |
+| W1-035 | overwrite dormant or Wave policy bytes | create-only refusal |
+| W1-036 | control digest supplied as H0 | typed ledger-state refusal |
+| W1-037 | crash after final event before outer receipt | recovery_required |
+| W1-038 | forged recovered receipt or partial event prefix | recovery refusal |
+| W1-039 | stopped/expired policy with pending slot | no execution |
+| W1-040 | continuation with stale head or old execution authority | refusal |
+| W1-041 | uppercase/braced/Unicode-hyphen locator | noncanonical locator refusal |
+| W1-042 | exact canonical duplicate locator | address collision |
 
 Every negative population has an executed positive control that proves the
 named gate rather than a dead runtime.
