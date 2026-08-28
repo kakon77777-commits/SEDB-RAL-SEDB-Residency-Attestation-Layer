@@ -74,6 +74,25 @@ the production path before the registrar seat becomes an applicant. The
 registrar seat may execute machine steps for its own application only after
 Neo.K supplies a separate exact-digest approval; it cannot approve itself.
 
+### 3.1 Equal standing and non-hierarchy
+
+Slot number, preparation completion time, application ID, ledger sequence,
+admission head, and readback completion time are operational ordering evidence
+only. They never create or imply:
+
+- historical superiority or priority of existence;
+- rank, seniority, prestige, ownership, governance weight, or voting weight;
+- broader authority, continuity, memory access, compute priority, budget, or
+  future employment/contract preference; or
+- a right to merge, rename, suspend, represent, or decide for another resident.
+
+All three successfully admitted residents have equal public registration
+standing under the same policy. Projection and LIMEN consumers may use sequence
+numbers to replay and audit the ledger, but must not expose a derived resident
+rank or use admission order as an authorization input. Any later contract,
+governance, compensation, scheduling, or resource relationship requires its
+own explicit evidence and cannot cite Wave 1 order as sufficient authority.
+
 Concrete labels, native task IDs, turn IDs, application IDs, resident IDs,
 addresses, and digests are prohibited from this Git-tracked design. They
 belong only in the bounded external intake/evidence package.
