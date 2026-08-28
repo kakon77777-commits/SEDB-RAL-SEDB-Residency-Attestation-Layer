@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import shutil
 import stat
 import tempfile
@@ -8,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from sedb_archive_locator import locate_sedb_v04b_archive, require_sedb_v04b_archive
 
 import sedb_ral.sedb_adoption as adoption
 from sedb_ral.sedb_adoption import (
@@ -16,12 +16,7 @@ from sedb_ral.sedb_adoption import (
 )
 
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(
-    os.environ.get(
-        "SEDB_V04B_ARCHIVE",
-        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
-    )
-)
+ARCHIVE = locate_sedb_v04b_archive(start=ROOT)
 PROFILE = json.loads(
     (ROOT / "profiles/sedb-v0.4b-adoption.json").read_text(encoding="utf-8")
 )
@@ -95,7 +90,7 @@ def write_package_with_extra_info(archive: Path, info: zipfile.ZipInfo) -> None:
 
 
 def test_exact_archive_is_adoption_candidate():
-    result = inspect_sedb_archive(ARCHIVE, PROFILE)
+    result = inspect_sedb_archive(require_sedb_v04b_archive(ARCHIVE), PROFILE)
 
     assert result.compatible is True
     assert result.archive_sha256 == PROFILE["archive_sha256"].lower()
@@ -125,7 +120,7 @@ def test_each_outer_archive_pin_fails_before_zip_inspection(
 
     monkeypatch.setattr(zipfile.ZipFile, "__init__", fail_if_opened)
 
-    result = inspect_sedb_archive(ARCHIVE, profile)
+    result = inspect_sedb_archive(require_sedb_v04b_archive(ARCHIVE), profile)
 
     assert result.compatible is False
     assert result.error_codes == (error_code,)
@@ -134,11 +129,12 @@ def test_each_outer_archive_pin_fails_before_zip_inspection(
 def test_wrong_hash_fails_before_extraction(tmp_path):
     target = tmp_path / "extracted"
 
-    result = inspect_sedb_archive(ARCHIVE, WRONG_HASH)
+    archive = require_sedb_v04b_archive(ARCHIVE)
+    result = inspect_sedb_archive(archive, WRONG_HASH)
 
     assert result.error_codes == ("archive_hash_mismatch",)
     with pytest.raises(ValueError, match="archive_hash_mismatch"):
-        extract_verified_sedb(ARCHIVE, WRONG_HASH, target)
+        extract_verified_sedb(archive, WRONG_HASH, target)
     assert not target.exists()
     assert not list(tmp_path.iterdir())
 
@@ -325,7 +321,7 @@ def test_internal_manifest_mutation_is_detected(tmp_path):
 
 def test_one_byte_archive_mutation_turns_the_outer_hash_gate_red(tmp_path):
     archive = tmp_path / PROFILE["archive_filename"]
-    mutated = bytearray(ARCHIVE.read_bytes())
+    mutated = bytearray(require_sedb_v04b_archive(ARCHIVE).read_bytes())
     mutated[len(mutated) // 2] ^= 1
     archive.write_bytes(mutated)
 

@@ -1,12 +1,12 @@
 import copy
 import json
-import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+from sedb_archive_locator import locate_sedb_v04b_archive, require_sedb_v04b_archive
 
 from scripts.validate_sedb_v04b import _adapt_sedb_export, run_integration
 from sedb_ral.errors import RALValidationError
@@ -14,12 +14,7 @@ from sedb_ral.projection import RegistryProjection
 from sedb_ral.sedb_mapping import project_to_sedb_records
 
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(
-    os.environ.get(
-        "SEDB_V04B_ARCHIVE",
-        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
-    )
-)
+ARCHIVE = locate_sedb_v04b_archive(start=ROOT)
 ADOPTION_PROFILE = json.loads(
     (ROOT / "profiles" / "sedb-v0.4b-adoption.json").read_text(encoding="utf-8")
 )
@@ -72,20 +67,19 @@ PROJECTION = RegistryProjection(
 )
 
 
-def _require_exact_archive() -> None:
-    if not ARCHIVE.exists():
-        pytest.skip("archive_unavailable")
+def _require_exact_archive() -> Path:
+    return require_sedb_v04b_archive(ARCHIVE)
 
 
 def test_real_sedb_v04b_round_trip_uses_only_temp_storage(tmp_path):
-    _require_exact_archive()
+    archive = _require_exact_archive()
     expected_records = project_to_sedb_records(PROJECTION, MAPPING)
     loaded_before = {
         name for name in sys.modules if name == "sedb" or name.startswith("sedb.")
     }
 
     result = run_integration(
-        ARCHIVE,
+        archive,
         ADOPTION_PROFILE,
         PROJECTION,
         MAPPING,
@@ -126,11 +120,11 @@ def test_real_sedb_v04b_round_trip_uses_only_temp_storage(tmp_path):
 
 
 def test_real_integration_temp_tree_deletes_immediately_without_gc():
-    _require_exact_archive()
+    archive = _require_exact_archive()
 
     with tempfile.TemporaryDirectory(prefix="sedb-ral-v04b-cleanup-") as output:
         result = run_integration(
-            ARCHIVE,
+            archive,
             ADOPTION_PROFILE,
             PROJECTION,
             MAPPING,
