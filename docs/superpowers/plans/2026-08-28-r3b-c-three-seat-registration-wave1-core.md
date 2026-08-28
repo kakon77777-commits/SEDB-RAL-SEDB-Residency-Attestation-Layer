@@ -98,6 +98,7 @@ reviewer per task and do not infer operational approval from code review.
 - Create: `src/sedb_ral/schemas/principal-application-approval.schema.json`
 - Create: `src/sedb_ral/schemas/registration-slot-execution-authorization.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-request.schema.json`
+- Create: `src/sedb_ral/schemas/synthetic-wave-slot-execution-result.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-receipt.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-recovery-authorization.schema.json`
 - Create: `src/sedb_ral/schemas/registration-wave-slot-recovery-receipt.schema.json`
@@ -114,7 +115,8 @@ reviewer per task and do not infer operational approval from code review.
   `WavePolicyActivationRequest`, `WavePolicyActivationAuthority`,
   `WavePolicyActivationReceipt`,
   `PrincipalApplicationApproval`, `SlotExecutionAuthorization`,
-  `WaveSlotRequest`, `WaveSlotReceipt`, `WaveSlotRecoveryAuthorization`,
+  `WaveSlotRequest`, `SyntheticWaveSlotExecutionResult`, `WaveSlotReceipt`,
+  `WaveSlotRecoveryAuthorization`,
   `WaveSlotRecoveryReceipt`,
   `WaveTerminalEvent`, `WaveReadbackBundle`; each exposes `from_dict()`,
   `to_dict()`, `sealed()` and `verify()`.
@@ -132,7 +134,11 @@ def test_wave_plan_requires_three_contiguous_equal_standing_slots():
 def test_host_observation_v02_rejects_non_assistant_item_roles():
     for role, kind in (("user", "userMessage"), ("assistant", "toolCall")):
         with pytest.raises(RALValidationError, match="applicant_item_role_invalid"):
-            WaveHostObservation.from_dict(valid_host_v02(role=role, kind=kind))
+            ApplicantItemEvidence.from_dict(valid_item_evidence(role=role, kind=kind))
+
+def test_host_v02_requires_exact_item_evidence_ref_and_digest():
+    with pytest.raises(RALValidationError, match="host_item_evidence_mismatch"):
+        WaveHostObservation.from_dict(swapped_item_binding_host_v02())
 ```
 
 - [ ] **Step 2: Run contract tests and confirm RED**
@@ -244,6 +250,8 @@ class SyntheticWaveExecutionContext:
 class WaveEffectJournal:
     fixture_reads: int = 0
     staging_writes: int = 0
+    synthetic_ledger_writes: int = 0
+    synthetic_receipt_writes: int = 0
     production_reads: int = 0
     production_writes: int = 0
     private_reads: int = 0
@@ -302,7 +310,7 @@ git commit -m "feat: enforce synthetic Wave execution boundaries"
 @pytest.mark.parametrize("kind", ["userMessage", "codexDelegation", "reasoning", "toolCall", "commandExecution"])
 def test_non_agent_items_cannot_prepare_or_allocate_ids(kind, counting_ids_factory):
     with pytest.raises(RALValidationError, match="applicant_item_role_invalid"):
-        prepare_wave_candidate(context(), valid_claim(), item(kind=kind), host_v02(kind=kind), counting_ids_factory)
+        prepare_wave_candidate(context(), valid_claim(), item(kind=kind), host_v02(), counting_ids_factory)
     assert counting_ids_factory.calls == 0
 
 def test_continue_and_missing_agent_message_stop_before_id_assignment(counting_ids_factory):
@@ -635,15 +643,18 @@ git commit -m "feat: stage registration wave evidence safely"
   `build_admission_plan()` and `commit_admission_plan()`.
 - Produces:
   `plan_wave_slot(context, candidate, ...) -> PlannedWaveSlot` and
-  `execute_wave_slot(context, candidate, ...) -> WaveSlotReceipt`.
+  `simulate_wave_slot(context, candidate, ...) -> SyntheticWaveSlotExecutionResult`.
 
 - [ ] **Step 1: Write one-slot/no-auto-loop REDs**
 
 ```python
-def test_execute_slot_one_does_not_attempt_slot_two(tmp_path):
-    result = execute_wave_slot(context(tmp_path), candidate(1), engine(tmp_path), slot_request(1), execution_auth(1))
+def test_simulate_slot_one_does_not_attempt_slot_two(tmp_path):
+    result = simulate_wave_slot(context(tmp_path), candidate(1), engine(tmp_path), slot_request(1), execution_auth(1))
     assert result.slot_index == 1
     assert result.post_head == h1()
+    assert result.execution_scope == "synthetic"
+    assert result.production_wave_run == "NOT_RUN"
+    assert result.live_limen_b6a == "NOT_RUN"
     assert engine_calls(tmp_path) == [1]
 
 def test_slot_three_with_h1_and_no_slot_two_receipt_refuses(tmp_path):
@@ -663,11 +674,12 @@ Call `context.verify_before_io()` first. Validate candidate wrapper/item/host
 evidence, Wave policy/status, plan/order, three approval eligibility, JIT
 authorization, checkpoint and expected head before using the existing registrar
 Core against synthetic storage only. Build and restage the complete candidate
-chain. Execute exactly one synthetic slot and produce a
-`synthetic_candidate_only` receipt/readback bundle with
+chain. Execute exactly one synthetic slot and produce a sealed
+`SyntheticWaveSlotExecutionResult` with
 `live_limen_b6a=NOT_RUN` and `production_wave_run=NOT_RUN`. Never emit a
-production `accepted` or `canonical_committed_readback_failed` receipt in this
-plan.
+production `WaveSlotReceipt`, `accepted`, or
+`canonical_committed_readback_failed` object in this plan. The later operational
+adapter alone may construct the real receipt after production append/readback.
 
 - [ ] **Step 4: Run engine plus registrar regressions**
 
@@ -679,7 +691,7 @@ Expected: PASS.
 
 ```text
 git add src/sedb_ral/registration_wave_engine.py tests/test_registration_wave_engine.py
-git commit -m "feat: execute one registration wave slot safely"
+git commit -m "feat: simulate one registration wave slot safely"
 ```
 
 ---
@@ -755,7 +767,7 @@ git commit -m "feat: recover Wave 1 receipts without blind replay"
 
 **Interfaces:**
 - Produces:
-  `build_wave_readback_bundle(context, ledger_root, expected_head, plan, receipts) -> WaveReadbackBundle`.
+  `build_wave_readback_bundle(context, ledger_root, expected_head, plan, slot_results: tuple[SyntheticWaveSlotExecutionResult, ...]) -> WaveReadbackBundle`.
 
 - [ ] **Step 1: Write RAL-bundle and non-promotion REDs**
 
@@ -766,9 +778,14 @@ def test_bundle_reports_synthetic_ral_state_without_claiming_live_b6a():
     assert result.production_wave_run == "NOT_RUN"
     assert result.live_limen_b6a == "NOT_RUN"
 
-def test_claim_time_observation_is_not_accepted_by_ral_bundle_builder():
-    with pytest.raises(TypeError):
-        build_wave_readback_bundle(context(), ledger(), h1(), plan(), claim_time_observation())
+def test_ral_bundle_api_and_schema_have_no_limen_observation_input():
+    assert tuple(inspect.signature(build_wave_readback_bundle).parameters) == (
+        "context", "ledger_root", "expected_head", "plan", "slot_results"
+    )
+    value = valid_readback_bundle().to_dict()
+    value["limen_observation"] = claim_time_observation().to_dict()
+    with pytest.raises(RALValidationError, match="schema_invalid"):
+        WaveReadbackBundle.from_dict(value)
 ```
 
 - [ ] **Step 2: Run RED**
@@ -818,14 +835,18 @@ git commit -m "feat: export Wave 1 public readback evidence"
 
 ```python
 def test_validate_and_plan_commands_write_only_explicit_output(tmp_path):
-    result = run_cli("registration-wave", "build-plan", *inputs(tmp_path))
+    context, journal, sentinel = synthetic_cli_fixture(tmp_path)
+    before = sentinel.digest()
+    result = run_cli("registration-wave", "build-plan", *inputs(tmp_path, context))
     assert result.exit_code == 0
-    assert production_root_digest() == production_before()
+    assert sentinel.digest() == before
+    assert journal.production_reads == 0
+    assert journal.production_writes == 0
 
 def test_slot_admit_requires_explicit_synthetic_root_until_live_gate():
     result = run_cli("registration-wave", "slot-admit", *without_synthetic_root())
     assert result.exit_code == 2
-    assert result.json["reason_code"] == "production_wave_execution_not_authorized"
+    assert result.json["reason_codes"] == ["production_wave_execution_not_authorized"]
 ```
 
 - [ ] **Step 2: Run RED**
@@ -865,6 +886,7 @@ git commit -m "feat: expose typed Wave 1 CLI"
 - Create: `src/sedb_ral/registration_wave_acceptance.py`
 - Create: `scripts/validate_registration_wave.py`
 - Create: `tests/test_registration_wave_acceptance.py`
+- Create: `tests/fixtures/registration_wave/expected-positive-effects.json`
 
 **Interfaces:**
 - Produces `validate_registration_wave(root: Path) -> RegistrationWaveAcceptanceReport`
@@ -876,14 +898,20 @@ git commit -m "feat: expose typed Wave 1 CLI"
 def test_acceptance_has_every_unique_case_and_executed_control(tmp_path):
     report = validate_registration_wave(tmp_path)
     assert tuple(case.case_id for case in report.cases) == tuple(f"W1-{i:03d}" for i in range(1, 54))
-    assert all(case.passed for case in report.cases if case.case_id not in {"W1-047", "W1-048"})
+    assert all(
+        case.executed and case.passed
+        for case in report.cases
+        if case.case_id not in {"W1-047", "W1-048"}
+    )
     assert {case.case_id: case.status for case in report.cases if not case.executed} == {
         "W1-047": "NOT_RUN_OWNER_PLAN_REQUIRED",
         "W1-048": "NOT_RUN_OWNER_PLAN_REQUIRED",
     }
     assert report.production_wave_run == "NOT_RUN"
     assert report.live_limen_b6a == "NOT_RUN"
-    assert report.effects.nonzero_dimensions() == ()
+    assert report.production_root_status == "NOT_READ"
+    assert report.effects.allowed_refs() == expected_positive_effect_manifest()
+    assert report.effects.forbidden_nonzero_dimensions() == ()
 ```
 
 - [ ] **Step 2: Run RED**
@@ -904,6 +932,20 @@ authority, RAL readback bundle and private/no-network controls. Use a scoped
 private reads and writes, network, provider, Fabric, MCP and external CLI calls;
 every injected attempt must increment a dimension and turn the gate red.
 
+The independent expected-positive-effects fixture contains exact synthetic
+refs/counts:
+
+```text
+fixture_reads                 9  (claim/item/host for slots 1-3)
+staging_writes               27  (7 per slot + plan/policy/active-policy + 3 readback bundles)
+synthetic_ledger_writes      12  (4 staged events per slot)
+synthetic_receipt_writes      4  (policy activation + 3 Core receipts)
+```
+
+The journal records exact refs, not only integers; observed sorted refs must
+equal the fixture manifest byte-for-byte. Forbidden dimensions are production
+read/write, private read/write, network, provider, Fabric, MCP and external CLI.
+
 - [ ] **Step 4: Run acceptance and generate temp report**
 
 Run:
@@ -921,7 +963,7 @@ effects in the positive.
 - [ ] **Step 5: Commit Task 12**
 
 ```text
-git add src/sedb_ral/registration_wave_acceptance.py scripts/validate_registration_wave.py tests/test_registration_wave_acceptance.py
+git add src/sedb_ral/registration_wave_acceptance.py scripts/validate_registration_wave.py tests/test_registration_wave_acceptance.py tests/fixtures/registration_wave/expected-positive-effects.json
 git commit -m "test: validate the three-seat registration wave"
 ```
 
@@ -966,6 +1008,9 @@ digests, staging paths or production authority. It states exactly:
 ```text
 production_wave_run = NOT_RUN
 live_limen_b6a = NOT_RUN
+production_root_status = NOT_READ
+pinned_p3_4_receipt = VERIFIED
+r3b_b_regression = PASS
 ```
 
 - [ ] **Step 4: Run final code-candidate gates**
@@ -983,10 +1028,12 @@ python scripts/validate_registration_wave.py --output $wave
 git diff --check 580b647d2ce567ece16d5e07f9b9aa8dfa5b79a2..HEAD
 ```
 
-Expected: zero failures; every skip listed; P3-4/R3B-B unchanged; 51 RAL-owned
+Expected: zero failures; every skip listed; pinned P3-4 receipt verification and
+R3B-B synthetic regression pass; 51 RAL-owned
 W1 cases executed PASS; W1-047/W1-048 explicit
-`NOT_RUN_OWNER_PLAN_REQUIRED`; production root remains active_dormant with 0
-applications/residents/events; worktree clean after commit.
+`NOT_RUN_OWNER_PLAN_REQUIRED`; `production_root_status=NOT_READ`;
+`production_wave_run=NOT_RUN`; journal production/private/network/provider/
+Fabric/MCP/external-CLI effects zero; worktree clean after commit.
 
 - [ ] **Step 5: Build retained wheel and record exact hashes**
 
@@ -1003,8 +1050,10 @@ git commit -m "docs: record R3B-C Wave 1 candidate evidence"
 
 - [ ] **Step 7: Stop for one Twin final review**
 
-Review exact code head/tree, full tests, W1 acceptance, wheel, production
-read-only status and zero effects. Do not collect new host evidence, prepare
+Review exact code head/tree, full tests, W1 acceptance, wheel, pinned production
+receipt evidence, R3B-B synthetic regression, explicit
+`production_root_status=NOT_READ` and
+zero measured effects. Do not collect new host evidence, prepare
 real applications, activate Wave policy or append production events.
 
 ## Spec coverage map
