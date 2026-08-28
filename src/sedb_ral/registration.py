@@ -24,6 +24,12 @@ def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
     return normalized
 
 
+def canonical_claim_digest(claim: Mapping[str, object]) -> str:
+    canonical = _canonical_object(claim)
+    validate_contract("self-application-claim.schema.json", canonical)
+    return sha256_ref(canonical)
+
+
 @dataclass(frozen=True)
 class RegistrationIds:
     prepared_id: str
