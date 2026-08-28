@@ -443,9 +443,13 @@ def recover_synthetic_wave_slot_result(
     )
     verified_execution_result = issue_verified_synthetic_slot_result(
         execution_result,
+        planned.candidate,
         planned.execution_authorization,
         planned.application_authority,
         planned_slot_digest=planned.plan_digest,
+        ctcl_receipt_digest=sha256_ref(planned.ctcl_receipt),
+        registrar_plan_digest=planned.registrar_plan.digest,
+        policy_status_digest=planned.policy_status_digest,
         prefix_plan_digest=planned.result_prefix.plan_digest,
         prefix_verification_digest=planned.result_prefix.verification_digest,
         prefix_result_digests=tuple(
@@ -453,6 +457,7 @@ def recover_synthetic_wave_slot_result(
         ),
         prefix_final_head=planned.result_prefix.final_head,
         prefix_event_count=planned.result_prefix.ledger_event_count,
+        ledger_events=events,
         time=planned.policy_time,
     )
     recovery = SyntheticWaveSlotRecoveryResult.sealed(

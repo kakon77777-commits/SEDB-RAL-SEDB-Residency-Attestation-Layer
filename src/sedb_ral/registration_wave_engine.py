@@ -186,6 +186,8 @@ def _synthetic_prefix_material(
             != tuple(value.digest for value in results[: index - 1])
             or capability.prefix_final_head != previous_head
             or capability.prefix_event_count != cursor
+            or tuple(capability.ledger_events)
+            != tuple(events[: cursor + len(suffix)])
             or result.wave_plan_digest != plan.digest
             or result.slot_id != slot["slot_id"]
             or result.slot_index != index
@@ -651,9 +653,13 @@ def simulate_wave_slot(
     result = SyntheticWaveSlotExecutionResult.sealed(material)
     verified_result = issue_verified_synthetic_slot_result(
         result,
+        planned.candidate,
         planned.execution_authorization,
         planned.application_authority,
         planned_slot_digest=planned.plan_digest,
+        ctcl_receipt_digest=sha256_ref(planned.ctcl_receipt),
+        registrar_plan_digest=planned.registrar_plan.digest,
+        policy_status_digest=planned.policy_status_digest,
         prefix_plan_digest=planned.result_prefix.plan_digest,
         prefix_verification_digest=planned.result_prefix.verification_digest,
         prefix_result_digests=tuple(
@@ -661,6 +667,7 @@ def simulate_wave_slot(
         ),
         prefix_final_head=planned.result_prefix.final_head,
         prefix_event_count=planned.result_prefix.ledger_event_count,
+        ledger_events=events,
         time=time,
     )
     stored = store.put_slot_result(

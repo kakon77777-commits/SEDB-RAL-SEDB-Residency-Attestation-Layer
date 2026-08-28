@@ -8,6 +8,7 @@ from typing import Literal
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .contracts import validate_contract
 from .errors import RALValidationError
+from .projection import project_events
 from .registration import PreparedRegistration
 from .registration_wave_authority import (
     AuthorityTimeEvidence,
@@ -69,14 +70,19 @@ class StoreResult:
 @dataclass(frozen=True)
 class VerifiedSyntheticWaveSlotResult:
     result: SyntheticWaveSlotExecutionResult
+    candidate: VerifiedPreparedCandidate
     execution: VerifiedSlotExecutionAuthorization
     application_authority: VerifiedApplicationAuthority
     planned_slot_digest: str
+    ctcl_receipt_digest: str
+    registrar_plan_digest: str
+    policy_status_digest: str
     prefix_plan_digest: str
     prefix_verification_digest: str
     prefix_result_digests: tuple[str, ...]
     prefix_final_head: str | None
     prefix_event_count: int
+    ledger_events: tuple[dict[str, object], ...]
     issuance_time: VerifiedAuthorityTimeEvidence
     verification_digest: str
     _token: object = field(repr=False, compare=False)
@@ -89,17 +95,66 @@ class VerifiedSyntheticWaveSlotResult:
             )
 
     def verify(self) -> None:
+        self.candidate.verify()
         self.execution.verify_current(self.issuance_time)
         self.application_authority.verify_current(
             self.execution, self.issuance_time
         )
         result = SyntheticWaveSlotExecutionResult.from_dict(self.result.to_dict())
         request = self.execution.request
+        events = tuple(self.ledger_events)
+        appended = tuple(result.appended_events)
+        suffix = events[self.prefix_event_count :]
+        observed_pairs = tuple(
+            {
+                "event_ref": str(value["event_id"]),
+                "event_digest": sha256_ref(value),
+            }
+            for value in suffix
+        )
+        projection = project_events(events)
+        application = self.execution.approval.application
+        application_id = str(application["application_id"])
+        resident_id = str(application["claimed_resident_id"])
+        instance_id = str(application["instance_claims"][0]["instance_id"])
+        address_id = str(application["addresses"][0]["address_id"])
+        resident = projection.residents[resident_id]
+        instance = next(
+            value
+            for value in resident["instances"]
+            if value["instance_id"] == instance_id
+        )
+        address = next(
+            value
+            for value in resident["addresses"]
+            if value["address_id"] == address_id
+        )
+        expected_projection_digests = {
+            "application": sha256_ref(projection.applications[application_id]),
+            "resident": sha256_ref(resident),
+            "instance": sha256_ref(instance),
+            "address": sha256_ref(address),
+            "binding": sha256_ref(projection.directory[resident_id]),
+        }
+        planned_material = {
+            "candidate_capability_digest": self.candidate.verification_digest,
+            "wave_plan_digest": self.execution.plan.digest,
+            "slot_request_digest": request.digest,
+            "execution_authorization_digest": self.execution.verification_digest,
+            "result_prefix_digest": self.prefix_verification_digest,
+            "application_authority_capability_digest": self.application_authority.verification_digest,
+            "ctcl_receipt_digest": self.ctcl_receipt_digest,
+            "registrar_plan_digest": self.registrar_plan_digest,
+            "policy_status_digest": self.policy_status_digest,
+            "planning_time_digest": self.issuance_time.verification_digest,
+        }
         material = {
             "result_digest": result.digest,
+            "candidate_capability_digest": self.candidate.verification_digest,
             "execution_capability_digest": self.execution.verification_digest,
             "application_authority_capability_digest": self.application_authority.verification_digest,
             "planned_slot_digest": self.planned_slot_digest,
+            "ledger_events_digest": sha256_ref(list(events)),
             "prefix_plan_digest": self.prefix_plan_digest,
             "prefix_verification_digest": self.prefix_verification_digest,
             "prefix_result_digests": list(self.prefix_result_digests),
@@ -108,7 +163,17 @@ class VerifiedSyntheticWaveSlotResult:
             "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if (
-            result.wave_plan_digest != self.prefix_plan_digest
+            self.planned_slot_digest != sha256_ref(planned_material)
+            or request.candidate_digest != self.candidate.digest
+            or request.application_digest != self.candidate.application_digest
+            or self.candidate.application_digest
+            != self.execution.approval.application_digest
+            or result.wave_plan_digest != self.prefix_plan_digest
+            or result.wave_plan_ref
+            != f"registration-wave-plan:{self.execution.plan.wave_id}"
+            or result.result_id != f"synthetic-slot-result:{result.slot_index}"
+            or result.slot_id != request.slot_id
+            or result.slot_index != request.slot_index
             or result.slot_request_ref != request.request_id
             or result.slot_request_digest != request.digest
             or result.execution_authorization_ref
@@ -123,6 +188,16 @@ class VerifiedSyntheticWaveSlotResult:
             or result.slot_index != len(self.prefix_result_digests) + 1
             or request.expected_ledger_state["ledger_event_count"]
             != self.prefix_event_count
+            or len(events) != self.prefix_event_count + len(appended)
+            or not suffix
+            or tuple(appended) != observed_pairs
+            or result.post_head != suffix[-1]["integrity"]["chain_digest"]
+            or result.projection_digests != expected_projection_digests
+            or result.execution_scope != "synthetic"
+            or result.production_wave_run != "NOT_RUN"
+            or result.live_limen_b6a != "NOT_RUN"
+            or list(result.not_claimed)
+            != ["production_admission", "live_limen_resolution"]
             or self.verification_digest != sha256_ref(material)
         ):
             raise RALValidationError(
@@ -133,22 +208,29 @@ class VerifiedSyntheticWaveSlotResult:
 
 def issue_verified_synthetic_slot_result(
     result: SyntheticWaveSlotExecutionResult,
+    candidate: VerifiedPreparedCandidate,
     execution: VerifiedSlotExecutionAuthorization,
     application_authority: VerifiedApplicationAuthority,
     *,
     planned_slot_digest: str,
+    ctcl_receipt_digest: str,
+    registrar_plan_digest: str,
+    policy_status_digest: str,
     prefix_plan_digest: str,
     prefix_verification_digest: str,
     prefix_result_digests: tuple[str, ...],
     prefix_final_head: str | None,
     prefix_event_count: int,
+    ledger_events: tuple[dict[str, object], ...],
     time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedSyntheticWaveSlotResult:
     material = {
         "result_digest": result.digest,
+        "candidate_capability_digest": candidate.verification_digest,
         "execution_capability_digest": execution.verification_digest,
         "application_authority_capability_digest": application_authority.verification_digest,
         "planned_slot_digest": planned_slot_digest,
+        "ledger_events_digest": sha256_ref(list(ledger_events)),
         "prefix_plan_digest": prefix_plan_digest,
         "prefix_verification_digest": prefix_verification_digest,
         "prefix_result_digests": list(prefix_result_digests),
@@ -158,14 +240,19 @@ def issue_verified_synthetic_slot_result(
     }
     capability = VerifiedSyntheticWaveSlotResult(
         result=result,
+        candidate=candidate,
         execution=execution,
         application_authority=application_authority,
         planned_slot_digest=planned_slot_digest,
+        ctcl_receipt_digest=ctcl_receipt_digest,
+        registrar_plan_digest=registrar_plan_digest,
+        policy_status_digest=policy_status_digest,
         prefix_plan_digest=prefix_plan_digest,
         prefix_verification_digest=prefix_verification_digest,
         prefix_result_digests=prefix_result_digests,
         prefix_final_head=prefix_final_head,
         prefix_event_count=prefix_event_count,
+        ledger_events=ledger_events,
         issuance_time=time,
         verification_digest=sha256_ref(material),
         _token=_SLOT_RESULT_CAPABILITY_TOKEN,
@@ -773,6 +860,10 @@ def _slot_result_capability_evidence(
     return _closed_evidence(
         {
             "schema": "sedb-ral.verified-synthetic-slot-result-evidence/0.1",
+            "candidate": capability.candidate.to_dict(),
+            "candidate_capability": _candidate_capability_evidence(
+                capability.candidate
+            ),
             "execution_capability": _execution_capability_evidence(
                 capability.execution
             ),
@@ -782,11 +873,15 @@ def _slot_result_capability_evidence(
             ),
             "application_authority_capability_digest": capability.application_authority.verification_digest,
             "planned_slot_digest": capability.planned_slot_digest,
+            "ctcl_receipt_digest": capability.ctcl_receipt_digest,
+            "registrar_plan_digest": capability.registrar_plan_digest,
+            "policy_status_digest": capability.policy_status_digest,
             "prefix_plan_digest": capability.prefix_plan_digest,
             "prefix_verification_digest": capability.prefix_verification_digest,
             "prefix_result_digests": list(capability.prefix_result_digests),
             "prefix_final_head": capability.prefix_final_head,
             "prefix_event_count": capability.prefix_event_count,
+            "ledger_events": list(capability.ledger_events),
             "issuance_time": _time_value(capability.issuance_time),
         }
     )
@@ -801,6 +896,9 @@ def _rebuild_slot_result_capability(
     try:
         execution = _rebuild_execution_capability(
             evidence["execution_capability"]
+        )
+        candidate = _rebuild_candidate_capability(
+            evidence["candidate"], evidence["candidate_capability"]
         )
         time = _rebuild_time_capability(evidence["issuance_time"])
         authority = derive_verified_application_authority(
@@ -819,9 +917,13 @@ def _rebuild_slot_result_capability(
             )
         return issue_verified_synthetic_slot_result(
             SyntheticWaveSlotExecutionResult.from_dict(result_value),
+            candidate,
             execution,
             authority,
             planned_slot_digest=str(evidence["planned_slot_digest"]),
+            ctcl_receipt_digest=str(evidence["ctcl_receipt_digest"]),
+            registrar_plan_digest=str(evidence["registrar_plan_digest"]),
+            policy_status_digest=str(evidence["policy_status_digest"]),
             prefix_plan_digest=str(evidence["prefix_plan_digest"]),
             prefix_verification_digest=str(
                 evidence["prefix_verification_digest"]
@@ -829,6 +931,7 @@ def _rebuild_slot_result_capability(
             prefix_result_digests=tuple(evidence["prefix_result_digests"]),
             prefix_final_head=evidence["prefix_final_head"],
             prefix_event_count=evidence["prefix_event_count"],
+            ledger_events=tuple(evidence["ledger_events"]),
             time=time,
         )
     except (KeyError, TypeError, RALValidationError) as error:

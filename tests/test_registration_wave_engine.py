@@ -722,8 +722,11 @@ def test_verified_synthetic_prefix_advances_exactly_slot_one_two_three(
 
 
 @pytest.mark.parametrize("gate", ("store", "prefix"))
-def test_resealed_slot_result_cannot_substitute_jit_or_approval(
-    tmp_path, published_storage, gate
+@pytest.mark.parametrize(
+    "mutation", ("authority", "projection", "result_id", "event_pair")
+)
+def test_resealed_slot_result_cannot_substitute_capability_or_ledger_semantics(
+    tmp_path, published_storage, gate, mutation
 ):
     selected_plan, _, _, policy_context, candidate, request, authorization = (
         setup_slot_one(tmp_path, published_storage)
@@ -753,21 +756,59 @@ def test_resealed_slot_result_cannot_substitute_jit_or_approval(
         staging_parent=context.target_root / "staging-result-capability",
     )
     simulate_wave_slot(context, planned, store, time=policy_time())
+    original_capability = store.get_verified_slot_result("slot:1")
     path = next((store.root / "records/slot-results").glob("*.json"))
     record = json.loads(path.read_text(encoding="utf-8"))
     result_value = dict(record["object"])
     result_value.pop("result_digest")
-    result_value.update(
-        {
-            "execution_authorization_ref": "execution-authorization:attacker",
-            "execution_authorization_digest": digest("attacker-jit"),
-            "application_approval_ref": "approval:attacker",
-            "application_approval_digest": digest("attacker-approval"),
+    if mutation == "authority":
+        result_value.update(
+            {
+                "execution_authorization_ref": "execution-authorization:attacker",
+                "execution_authorization_digest": digest("attacker-jit"),
+                "application_approval_ref": "approval:attacker",
+                "application_approval_digest": digest("attacker-approval"),
+            }
+        )
+    elif mutation == "projection":
+        result_value["projection_digests"] = {
+            **result_value["projection_digests"],
+            "application": digest("attacker-projection"),
         }
-    )
+    elif mutation == "result_id":
+        result_value["result_id"] = "synthetic-slot-result:attacker"
+    else:
+        result_value["appended_events"] = [
+            {
+                **result_value["appended_events"][0],
+                "event_digest": digest("attacker-event"),
+            },
+            *result_value["appended_events"][1:],
+        ]
     forged = SyntheticWaveSlotExecutionResult.sealed(result_value)
     record["object"] = forged.to_dict()
     record["object_digest"] = forged.digest
+    record["object_ref"] = forged.result_id
+    record["capability_digest"] = sha256_ref(
+        {
+            "result_digest": forged.digest,
+            "candidate_capability_digest": original_capability.candidate.verification_digest,
+            "execution_capability_digest": original_capability.execution.verification_digest,
+            "application_authority_capability_digest": original_capability.application_authority.verification_digest,
+            "planned_slot_digest": original_capability.planned_slot_digest,
+            "ledger_events_digest": sha256_ref(
+                list(original_capability.ledger_events)
+            ),
+            "prefix_plan_digest": original_capability.prefix_plan_digest,
+            "prefix_verification_digest": original_capability.prefix_verification_digest,
+            "prefix_result_digests": list(
+                original_capability.prefix_result_digests
+            ),
+            "prefix_final_head": original_capability.prefix_final_head,
+            "prefix_event_count": original_capability.prefix_event_count,
+            "issuance_time_digest": original_capability.issuance_time.verification_digest,
+        }
+    )
     record["record_digest"] = sha256_ref(
         {key: value for key, value in record.items() if key != "record_digest"}
     )
