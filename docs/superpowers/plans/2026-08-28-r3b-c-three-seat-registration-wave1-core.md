@@ -517,8 +517,9 @@ git commit -m "feat: separate application and slot authority"
 
 **Interfaces:**
 - Produces:
+  `WavePolicyActivationResult(record: ActiveWavePolicyRecord, receipt: WavePolicyActivationReceipt)`,
   `plan_wave_policy_activation(context, storage, plan, approvals, authority, checkpoint) -> dict`,
-  `activate_wave_policy(context, storage, request, approvals, authority, acl_observation) -> ActiveWavePolicyRecord`,
+  `activate_wave_policy(context, storage, request, approvals, authority, acl_observation) -> WavePolicyActivationResult`,
   `terminate_wave_policy(context, storage, terminal_event, authority) -> ActiveWavePolicyRecord`, and
   `registration_wave_status(context, storage) -> dict[str, object]`.
 
@@ -528,8 +529,16 @@ git commit -m "feat: separate application and slot authority"
 def test_wave_policy_appends_sequence_one_without_rewriting_dormant(tmp_path):
     storage = dormant_production_fixture(tmp_path)
     before = dormant_bytes(storage)
-    active = activate_wave_policy(context(tmp_path), storage, request(), three_approvals(), authority(), protected_acl())
-    assert active.sequence == 1
+    journal = WaveEffectJournal()
+    activated = activate_wave_policy(context(tmp_path, journal=journal), storage, request(), three_approvals(), authority(), protected_acl())
+    assert activated.record.sequence == 1
+    assert activated.receipt.active_policy_digest == activated.record.digest
+    assert registration_wave_status(context(tmp_path), storage)["activation_receipt_status"] == "verified"
+    assert activation_receipt_path(storage, 1).relative_to(storage.root) == Path(
+        "evidence/registration-wave-policy-activation-00000000000000000001.json"
+    )
+    assert journal.synthetic_receipt_writes == 1
+    assert journal.refs("synthetic_receipt_writes") == (activated.receipt.ref,)
     assert dormant_bytes(storage) == before
 
 def test_policy_requires_three_exact_application_approvals_before_io(tmp_path, io_spies):
@@ -543,6 +552,38 @@ def test_expired_policy_refuses_execute_but_status_and_recovery_remain():
     assert status["wave_status"] == "expired"
     with pytest.raises(RALValidationError, match="wave_policy_inactive"):
         require_wave_execution(status)
+
+def test_crash_after_active_record_before_receipt_is_unreceipted(tmp_path):
+    storage = dormant_production_fixture(tmp_path)
+    journal = WaveEffectJournal()
+    with pytest.raises(InjectedCrash, match="after_active_record_before_receipt"):
+        activate_wave_policy(
+            context(tmp_path, journal=journal, crash_at="after_active_record_before_receipt"),
+            storage, request(), three_approvals(), authority(), protected_acl(),
+        )
+    status = registration_wave_status(context(tmp_path), storage)
+    assert status["wave_status"] == "active_unreceipted"
+    assert status["activation_receipt_status"] == "missing"
+    assert journal.synthetic_receipt_writes == 0
+    with pytest.raises(RALValidationError, match="wave_policy_unreceipted"):
+        require_wave_execution(status)
+
+def test_exact_retry_finalizes_missing_receipt_without_second_active_record(tmp_path):
+    storage = crashed_after_active_record_fixture(tmp_path)
+    before = active_policy_files(storage)
+    activated = activate_wave_policy(
+        context(tmp_path), storage, request(), three_approvals(), authority(), protected_acl()
+    )
+    assert active_policy_files(storage) == before
+    assert len(before) == 1
+    assert activated.receipt.active_policy_digest == activated.record.digest
+    assert registration_wave_status(context(tmp_path), storage)["activation_receipt_status"] == "verified"
+
+def test_tampered_or_cross_bound_activation_receipt_refuses_execution(tmp_path):
+    storage = activated_fixture(tmp_path)
+    mutate_activation_receipt(storage, active_policy_digest=digest("other"))
+    with pytest.raises(RALValidationError, match="wave_policy_activation_receipt_mismatch"):
+        registration_wave_status(context(tmp_path), storage)
 ```
 
 - [ ] **Step 2: Run RED**
@@ -553,13 +594,24 @@ Expected: missing Wave policy implementation.
 
 - [ ] **Step 3: Implement create-only policy/control chain**
 
-Use `policies/wave1-policy-{64hex}.json` and fixed-width
-`active-policy/{sequence:020d}.json`. Bind predecessor, dormant policy, registry
-generation, extension index, checkpoint, authority and status. Before any IO,
+Use create-only `policies/wave1-policy-{64hex}.json`, fixed-width
+`active-policy/{sequence:020d}.json`, and the existing evidence convention
+`evidence/registration-wave-policy-activation-{sequence:020d}.json`. Bind the
+receipt to the exact policy and active-policy record refs/digests, predecessor,
+dormant policy, registry generation, extension index, checkpoint, authority,
+request, all three approvals, ACL observation and post-write readback. Before any IO,
 require exactly three active `PrincipalApplicationApproval` objects whose
 application digests equal the ordered candidate/application digests in the Wave
 plan; duplicate, missing, changed, expired or revoked approval refuses. Reuse
 existing ACL/reparse/hard-link/ADS guards after the context pre-IO gate.
+
+Publish the active-policy record first and its activation receipt second, both
+with no-replace semantics, then read back and verify both before returning the
+composite `WavePolicyActivationResult`. A crash in that gap is a durable
+`active_unreceipted` state: status/diagnosis work, but intake/planning/execution
+fail closed. An exact retry may create the missing receipt after verifying every
+bound input and the unchanged record; changed inputs, changed bytes, a second
+receipt, or a mismatched digest fail closed without overwrite.
 
 - [ ] **Step 4: Run policy and production-layout regressions**
 
@@ -975,16 +1027,18 @@ refs/counts:
 
 ```text
 fixture_reads                 9  (claim/item/host for slots 1-3)
-staging_writes               27  (per slot: claim/item/host/candidate/approval/request/result;
-                                  plus plan/policy/active-policy and 3 readback bundles)
+staging_writes               28  (per slot: claim/item/host/candidate/approval/request/result;
+                                  plus plan/policy/active-policy/activation-receipt and 3 readback bundles)
 synthetic_ledger_writes      12  (4 staged events per slot)
-synthetic_receipt_writes      3  (one sealed SyntheticWaveSlotExecutionResult per slot)
+synthetic_receipt_writes      4  (one exact policy activation receipt plus
+                                  one sealed SyntheticWaveSlotExecutionResult per slot)
 ```
 
 The journal records exact refs, not only integers; observed sorted refs must
 equal the fixture manifest byte-for-byte. `synthetic_receipt_writes` is a typed
-subset of the 27 staging writes and never denotes a production
-`WaveSlotReceipt` or `WaveSlotRecoveryReceipt`; it is not added again when
+subset of the 28 staging writes. It includes the policy activation receipt in
+the synthetic fixture and the three synthetic slot results; it never denotes a
+production `WaveSlotReceipt` or `WaveSlotRecoveryReceipt` and is not added again when
 computing physical write totals. Forbidden dimensions are production
 read/write, private read/write, network, provider, Fabric, MCP and external CLI.
 Every acceptance case receives its own scoped journal. The manifest above is
@@ -1125,8 +1179,9 @@ real applications, activate Wave policy or append production events.
 - Synthetic RAL readback bundle without live-B6A promotion: Tasks 1 and 10;
   LIMEN consumption remains the later B6A plan.
 - Typed CLI and core production hard-stop: Tasks 2 and 11.
-- W1-001 through W1-053 with two explicit LIMEN-owner NOT_RUN cases, measured
-  effects and zero real side effects: Task 12.
+- W1-001 through W1-053 with six explicit LIMEN-owner NOT_RUN cases
+  (W1-019/W1-020/W1-021/W1-022/W1-047/W1-048), measured effects and zero real
+  side effects: Task 12.
 - Wheel/CI/runbook/final evidence and one Twin gate: Task 13.
 
 ## Post-plan gates not authorized here
