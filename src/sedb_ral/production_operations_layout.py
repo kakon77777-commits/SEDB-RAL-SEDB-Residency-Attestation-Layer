@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import ntpath
+import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from .canonical import sha256_ref
@@ -9,7 +10,6 @@ from .errors import RALValidationError
 from .production_operations_contracts import (
     ProductionOperationsActivationCommit,
     ProductionOperationsActivationReceipt,
-    ProductionOperationsAuthority,
     ProductionOperationsManifest,
     ProductionOperationsPlan,
     ProductionOperationsPolicy,
@@ -18,11 +18,11 @@ from .production_operations_contracts import (
 )
 from .registry_root import (
     RegistryStorage,
-    _rename_no_replace,
     _read_object,
     _reject_alternate_streams,
     _reject_private_markers,
     _relative,
+    _rename_no_replace,
     _storage,
     _tree_digest,
     _verify_bound_receipt,
@@ -35,7 +35,6 @@ from .registry_root_contracts import (
     bind_document_digest,
     verify_registry_acl,
 )
-
 
 EXPECTED_EXTENSION_DIRECTORIES = frozenset(
     {
@@ -63,6 +62,23 @@ EXPECTED_EXTENSION_FILES = frozenset(
         "registrar-operations/v1/active-policy/00000000000000000000.json",
     }
 )
+_WAVE_POLICY_FILE = re.compile(
+    r"^registrar-operations/v1/policies/wave1-policy-[0-9a-f]{64}\.json$"
+)
+_WAVE_ACTIVE_FILE = re.compile(
+    r"^registrar-operations/v1/active-policy/[0-9]{20}\.json$"
+)
+_WAVE_EVIDENCE_FILE = re.compile(
+    r"^registrar-operations/v1/(?:requests/wave-policy-activation|audit/wave-policy-(?:activation-authority|terminal-authority|acl)|audit/application-approval)-[0-9a-f]{64}\.json$"
+)
+
+
+def _is_allowed_wave_file(name: str) -> bool:
+    return bool(
+        _WAVE_POLICY_FILE.fullmatch(name)
+        or _WAVE_ACTIVE_FILE.fullmatch(name)
+        or _WAVE_EVIDENCE_FILE.fullmatch(name)
+    )
 
 
 def _candidate_root(
@@ -521,9 +537,10 @@ def verify_production_operations_extension(
     _reject_private_markers(extension_root, files)
     relative_directories = {_relative(path, extension_root) for path in directories}
     relative_files = {_relative(path, extension_root) for path in files}
-    if (
-        relative_directories != EXPECTED_EXTENSION_DIRECTORIES
-        or relative_files != EXPECTED_EXTENSION_FILES
+    extra_files = relative_files - EXPECTED_EXTENSION_FILES
+    if relative_directories != EXPECTED_EXTENSION_DIRECTORIES or not (
+        EXPECTED_EXTENSION_FILES <= relative_files
+        and all(_is_allowed_wave_file(name) for name in extra_files)
     ):
         raise RALValidationError(
             "production_operations_extension_layout_mismatch",
@@ -616,11 +633,20 @@ def verify_production_operations_extension(
                 "activation receipt binds another extension",
             )
         receipt_status = "verified"
-    return {
+    base_result = {
         "extensions_status": "active_dormant",
         "activation_receipt_status": receipt_status,
         "extension_index_digest": index["index_digest"],
         "operations_generation": manifest["operations_generation"],
         "registry_generation_digest": generation_digest,
         "candidate_id": commit["candidate_id"],
+        "dormant_policy_digest": policy["policy_digest"],
+        "dormant_active_policy_ref": "active-policy/00000000000000000000.json",
+        "dormant_active_policy_digest": activation["control_digest"],
+    }
+    from .registration_wave_policy import wave_policy_status_fields
+
+    return {
+        **base_result,
+        **wave_policy_status_fields(selected, version_root, base_result),
     }

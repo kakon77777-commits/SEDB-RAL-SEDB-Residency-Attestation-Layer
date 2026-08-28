@@ -438,6 +438,16 @@ def _verify_exact_tree(
                 and name.endswith(".json")
             )
             or (
+                allow_extensions
+                and name.startswith("evidence/registration-wave-policy-activation-")
+                and name.endswith(".json")
+            )
+            or (
+                allow_extensions
+                and name.startswith("evidence/registration-wave-policy-terminal-")
+                and name.endswith(".json")
+            )
+            or (
                 name.startswith(
                     (
                         "evidence/checkpoints/checkpoint-",
