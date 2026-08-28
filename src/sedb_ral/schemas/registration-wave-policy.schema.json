@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registration-wave-policy.schema.json",
+  "title": "SEDB-RAL Registration Wave Policy v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "policy_id", "wave_id", "ordered_application_digests",
+    "ordered_locators", "allowed_actions", "max_slots", "batch_append",
+    "capabilities", "valid_from_ref", "expires_at_ref", "not_claimed",
+    "policy_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registration-wave-policy/0.1"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "wave_id": {"type": "string", "minLength": 1},
+    "ordered_application_digests": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}},
+    "ordered_locators": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},
+    "allowed_actions": {"const": ["prepare", "readback", "admit_one"]},
+    "max_slots": {"const": 3},
+    "batch_append": {"const": false},
+    "capabilities": {
+      "const": {
+        "correction": false,
+        "merge": false,
+        "private_access": false,
+        "network_send": false,
+        "provider_call": false,
+        "fabric_emit": false,
+        "mcp_call": false,
+        "cloud": false,
+        "deletion": false
+      }
+    },
+    "valid_from_ref": {"type": "string", "minLength": 1},
+    "expires_at_ref": {"type": "string", "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "policy_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

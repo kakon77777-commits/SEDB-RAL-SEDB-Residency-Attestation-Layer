@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/synthetic-wave-slot-recovery-result.schema.json",
+  "title": "SEDB-RAL Synthetic Wave Slot Recovery Result v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "result_id", "recovery_authorization_ref",
+    "recovery_authorization_digest", "verified_prefix_digest", "pre_head",
+    "post_head", "reconstructed_result_ref", "reconstructed_result_digest",
+    "execution_scope", "production_wave_run", "live_limen_b6a", "status",
+    "not_claimed", "result_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.synthetic-wave-slot-recovery-result/0.1"},
+    "result_id": {"type": "string", "minLength": 1},
+    "recovery_authorization_ref": {"type": "string", "minLength": 1},
+    "recovery_authorization_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "verified_prefix_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "pre_head": {"type": ["string", "null"], "minLength": 1},
+    "post_head": {"type": "string", "minLength": 1},
+    "reconstructed_result_ref": {"type": "string", "minLength": 1},
+    "reconstructed_result_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "execution_scope": {"const": "synthetic"},
+    "production_wave_run": {"const": "NOT_RUN"},
+    "live_limen_b6a": {"const": "NOT_RUN"},
+    "status": {"const": "recovered_synthetic"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "result_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

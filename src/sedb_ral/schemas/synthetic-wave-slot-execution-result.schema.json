@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/synthetic-wave-slot-execution-result.schema.json",
+  "title": "SEDB-RAL Synthetic Wave Slot Execution Result v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "result_id", "wave_plan_ref", "wave_plan_digest", "slot_id",
+    "slot_index", "slot_request_ref", "slot_request_digest",
+    "execution_authorization_ref", "execution_authorization_digest",
+    "application_approval_ref", "application_approval_digest", "pre_head",
+    "post_head", "appended_events", "projection_digests", "execution_scope",
+    "production_wave_run", "live_limen_b6a", "not_claimed", "result_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.synthetic-wave-slot-execution-result/0.1"},
+    "result_id": {"type": "string", "minLength": 1},
+    "wave_plan_ref": {"type": "string", "minLength": 1},
+    "wave_plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "slot_id": {"type": "string", "minLength": 1},
+    "slot_index": {"enum": [1, 2, 3]},
+    "slot_request_ref": {"type": "string", "minLength": 1},
+    "slot_request_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "execution_authorization_ref": {"type": "string", "minLength": 1},
+    "execution_authorization_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "application_approval_ref": {"type": "string", "minLength": 1},
+    "application_approval_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "pre_head": {"type": ["string", "null"], "minLength": 1},
+    "post_head": {"type": "string", "minLength": 1},
+    "appended_events": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["event_ref", "event_digest"],
+        "properties": {
+          "event_ref": {"type": "string", "minLength": 1},
+          "event_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "projection_digests": {
+      "type": "object", "additionalProperties": false,
+      "required": ["application", "resident", "instance", "address", "binding"],
+      "properties": {
+        "application": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+        "resident": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+        "instance": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+        "address": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+        "binding": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+      }
+    },
+    "execution_scope": {"const": "synthetic"},
+    "production_wave_run": {"const": "NOT_RUN"},
+    "live_limen_b6a": {"const": "NOT_RUN"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "result_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

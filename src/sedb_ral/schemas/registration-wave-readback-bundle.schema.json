@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registration-wave-readback-bundle.schema.json",
+  "title": "SEDB-RAL Registration Wave Readback Bundle v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "bundle_id", "wave_plan_ref", "wave_plan_digest",
+    "expected_ledger_head", "admitted_slot_indexes", "ral_view_schema_id",
+    "raw_sha256", "public_view_digest", "ledger_head", "binding_head",
+    "authority_head", "source_events", "slot_projection_digests",
+    "production_wave_run", "live_limen_b6a", "not_claimed", "bundle_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registration-wave-readback-bundle/0.1"},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "wave_plan_ref": {"type": "string", "minLength": 1},
+    "wave_plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "expected_ledger_head": {"type": "string", "minLength": 1},
+    "admitted_slot_indexes": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": {"enum": [1, 2, 3]}},
+    "ral_view_schema_id": {"const": "https://evemisslab.com/schemas/limen/ral-view-v0.2.json"},
+    "raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "public_view_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "ledger_head": {"type": "string", "minLength": 1},
+    "binding_head": {"type": "string", "minLength": 1},
+    "authority_head": {"type": "string", "minLength": 1},
+    "source_events": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["event_ref", "event_digest"], "properties": {"event_ref": {"type": "string", "minLength": 1}, "event_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}}}},
+    "slot_projection_digests": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["slot_index", "application", "resident", "instance", "address", "binding"], "properties": {"slot_index": {"enum": [1, 2, 3]}, "application": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}, "resident": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}, "instance": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}, "address": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}, "binding": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}}}},
+    "production_wave_run": {"const": "NOT_RUN"},
+    "live_limen_b6a": {"const": "NOT_RUN"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "bundle_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}
