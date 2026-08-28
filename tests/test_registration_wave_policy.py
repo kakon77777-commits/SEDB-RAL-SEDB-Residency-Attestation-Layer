@@ -23,10 +23,12 @@ import sedb_ral.registration_wave_policy as policy_module
 from sedb_ral.canonical import canonical_bytes, sha256_ref
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registration_wave_authority import (
+    AuthorityTimeEvidence,
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
     VerifiedApplicationApproval,
     verify_application_approval,
+    verify_authority_time_evidence,
 )
 from sedb_ral.registration_wave_context import (
     SYNTHETIC_MARKER_NAME,
@@ -76,16 +78,17 @@ def published_storage(tmp_path):
     return storage
 
 
-def policy_time(now: int = 200):
-    return type(time_evidence())(
-        now_ref="time:policy-now",
-        now_epoch_ns=now,
-        valid_from_ref="ctcl:instant:policy-start",
-        valid_from_epoch_ns=100,
-        expires_at_ref="ctcl:instant:policy-end",
-        expires_at_epoch_ns=300,
-        source_ref="clock:synthetic-policy",
-        source_digest=digest("policy-clock"),
+def policy_time(now: int = 200, *, expires_at: int = 300):
+    return verify_authority_time_evidence(
+        AuthorityTimeEvidence.sealed(
+            now_ref="time:policy-now",
+            now_epoch_ns=now,
+            valid_from_ref="ctcl:instant:policy-start",
+            valid_from_epoch_ns=100,
+            expires_at_ref="ctcl:instant:policy-end",
+            expires_at_epoch_ns=expires_at,
+            source_ref="clock:synthetic",
+        )
     )
 
 
@@ -306,6 +309,32 @@ def test_policy_requires_three_verified_approvals_before_io(
             policy=selected_policy,
             plan=selected_plan,
             time=policy_time(),
+        )
+
+    assert journal.nonzero_dimensions() == ()
+
+
+def test_policy_activation_rechecks_expired_approval_and_authority_before_io(
+    tmp_path, published_storage
+):
+    install_active_dormant(published_storage)
+    selected_plan, selected_policy, approvals, request, authority = activation_bundle(
+        tmp_path, published_storage
+    )
+    journal = WaveEffectJournal()
+    context = wave_context(tmp_path, published_storage, journal)
+
+    with pytest.raises(RALValidationError, match="authority_time_inactive"):
+        activate_wave_policy(
+            context,
+            published_storage,
+            request,
+            approvals,
+            authority,
+            acl_observation(),
+            policy=selected_policy,
+            plan=selected_plan,
+            time=policy_time(now=400, expires_at=500),
         )
 
     assert journal.nonzero_dimensions() == ()

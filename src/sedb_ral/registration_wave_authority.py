@@ -16,6 +16,8 @@ from .registration_wave_models import (
 
 _APPROVAL_TOKEN = object()
 _EXECUTION_TOKEN = object()
+_TIME_TOKEN = object()
+_APPLICATION_AUTHORITY_TOKEN = object()
 
 
 def _canonical_object(value: Mapping[str, object]) -> dict[str, object]:
@@ -36,7 +38,57 @@ class AuthorityTimeEvidence:
     source_ref: str
     source_digest: str
 
-    def verify(self, valid_from_ref: str, expires_at_ref: str | None) -> None:
+    @classmethod
+    def sealed(
+        cls,
+        *,
+        now_ref: str,
+        now_epoch_ns: int,
+        valid_from_ref: str,
+        valid_from_epoch_ns: int,
+        expires_at_ref: str | None,
+        expires_at_epoch_ns: int | None,
+        source_ref: str,
+    ) -> AuthorityTimeEvidence:
+        value = cls(
+            now_ref=now_ref,
+            now_epoch_ns=now_epoch_ns,
+            valid_from_ref=valid_from_ref,
+            valid_from_epoch_ns=valid_from_epoch_ns,
+            expires_at_ref=expires_at_ref,
+            expires_at_epoch_ns=expires_at_epoch_ns,
+            source_ref=source_ref,
+            source_digest="",
+        )
+        return cls(
+            **{
+                **value._source_material(),
+                "source_digest": sha256_ref(value._source_material()),
+            }
+        )
+
+    def _source_material(self) -> dict[str, object]:
+        return {
+            "now_ref": self.now_ref,
+            "now_epoch_ns": self.now_epoch_ns,
+            "valid_from_ref": self.valid_from_ref,
+            "valid_from_epoch_ns": self.valid_from_epoch_ns,
+            "expires_at_ref": self.expires_at_ref,
+            "expires_at_epoch_ns": self.expires_at_epoch_ns,
+            "source_ref": self.source_ref,
+        }
+
+    @property
+    def digest(self) -> str:
+        return sha256_ref(
+            {
+                "schema": "sedb-ral.authority-time-evidence/0.1",
+                **self._source_material(),
+                "source_digest": self.source_digest,
+            }
+        )
+
+    def verify_source(self) -> None:
         integers = (
             self.now_epoch_ns,
             self.valid_from_epoch_ns,
@@ -49,13 +101,27 @@ class AuthorityTimeEvidence:
             raise RALValidationError(
                 "authority_time_invalid", "authority time evidence is not integral"
             )
+        if self.source_digest != sha256_ref(self._source_material()):
+            raise RALValidationError(
+                "authority_time_source_mismatch",
+                "authority time source digest differs",
+            )
+        if (
+            (self.expires_at_ref is None) != (self.expires_at_epoch_ns is None)
+            or not self.now_ref
+            or not self.valid_from_ref
+            or not self.source_ref
+            or not self.source_digest
+        ):
+            raise RALValidationError(
+                "authority_time_mismatch", "authority time references differ"
+            )
+
+    def verify(self, valid_from_ref: str, expires_at_ref: str | None) -> None:
+        self.verify_source()
         if (
             self.valid_from_ref != valid_from_ref
             or self.expires_at_ref != expires_at_ref
-            or (self.expires_at_ref is None) != (self.expires_at_epoch_ns is None)
-            or not self.now_ref
-            or not self.source_ref
-            or not self.source_digest
         ):
             raise RALValidationError(
                 "authority_time_mismatch", "authority time references differ"
@@ -67,6 +133,93 @@ class AuthorityTimeEvidence:
             raise RALValidationError(
                 "authority_time_inactive", "authority is outside its time window"
             )
+
+
+@dataclass(frozen=True)
+class VerifiedAuthorityTimeEvidence:
+    evidence: AuthorityTimeEvidence
+    verification_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _TIME_TOKEN:
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "authority time capability was not verifier-issued",
+            )
+
+    @property
+    def digest(self) -> str:
+        return self.evidence.digest
+
+    @property
+    def now_epoch_ns(self) -> int:
+        return self.evidence.now_epoch_ns
+
+    @property
+    def now_ref(self) -> str:
+        return self.evidence.now_ref
+
+    def verify(
+        self,
+        valid_from_ref: str | None = None,
+        expires_at_ref: str | None = None,
+    ) -> None:
+        self.evidence.verify_source()
+        if self.verification_digest != sha256_ref(
+            {"authority_time_evidence_digest": self.evidence.digest}
+        ):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "authority time capability digest differs",
+            )
+        if valid_from_ref is not None:
+            self.evidence.verify(valid_from_ref, expires_at_ref)
+
+    def verify_current(
+        self, valid_from_ref: str, expires_at_ref: str | None
+    ) -> None:
+        self.verify()
+        self.evidence.verify(valid_from_ref, expires_at_ref)
+
+    def verify_against(self, issuance: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        if not isinstance(issuance, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "issuance time capability is missing",
+            )
+        issuance.verify()
+        if self.evidence.source_ref != issuance.evidence.source_ref:
+            raise RALValidationError(
+                "authority_time_source_mismatch",
+                "fresh and issuance clock sources differ",
+            )
+        if self.now_epoch_ns < issuance.evidence.valid_from_epoch_ns or (
+            issuance.evidence.expires_at_epoch_ns is not None
+            and self.now_epoch_ns > issuance.evidence.expires_at_epoch_ns
+        ):
+            raise RALValidationError(
+                "authority_time_inactive", "authority is outside its time window"
+            )
+
+
+def verify_authority_time_evidence(
+    evidence: AuthorityTimeEvidence,
+) -> VerifiedAuthorityTimeEvidence:
+    if not isinstance(evidence, AuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "authority time source observation is missing",
+        )
+    evidence.verify_source()
+    return VerifiedAuthorityTimeEvidence(
+        evidence=evidence,
+        verification_digest=sha256_ref(
+            {"authority_time_evidence_digest": evidence.digest}
+        ),
+        _token=_TIME_TOKEN,
+    )
 
 
 @dataclass(frozen=True)
@@ -192,6 +345,7 @@ class VerifiedApplicationApproval:
     application: dict[str, object]
     raw_item: RawPrincipalItemSnapshot = field(repr=False)
     host: PrincipalHostObservation
+    issuance_time: VerifiedAuthorityTimeEvidence
     application_digest: str
     verification_digest: str
     _token: object = field(repr=False, compare=False)
@@ -205,6 +359,7 @@ class VerifiedApplicationApproval:
 
     def verify(self) -> None:
         self.host.verify()
+        self.issuance_time.verify()
         if sha256_ref(self.application) != self.application_digest:
             raise RALValidationError(
                 "verified_application_approval_required",
@@ -215,12 +370,22 @@ class VerifiedApplicationApproval:
             "application_digest": self.application_digest,
             "raw_item_digest": self.raw_item.evidence_digest,
             "host_observation_digest": self.host.digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if sha256_ref(material) != self.verification_digest:
             raise RALValidationError(
                 "verified_application_approval_required",
                 "approval capability digest differs",
             )
+
+    def verify_current(self, time: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "fresh authority time capability is required",
+            )
+        time.verify_against(self.issuance_time)
 
 
 @dataclass(frozen=True)
@@ -231,6 +396,7 @@ class VerifiedSlotExecutionAuthorization:
     plan_digest: str
     current_status_digest: str
     application_approval_digest: str
+    issuance_time: VerifiedAuthorityTimeEvidence
     verification_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -243,12 +409,14 @@ class VerifiedSlotExecutionAuthorization:
 
     def verify(self) -> None:
         self.approval.verify()
+        self.issuance_time.verify()
         material = {
             "authorization_digest": self.authorization.digest,
             "approval_capability_digest": self.approval.verification_digest,
             "request_digest": self.request_digest,
             "plan_digest": self.plan_digest,
             "current_status_digest": self.current_status_digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if (
             self.application_approval_digest != self.approval.approval.digest
@@ -258,6 +426,150 @@ class VerifiedSlotExecutionAuthorization:
                 "verified_slot_execution_required",
                 "slot execution capability digest differs",
             )
+
+    def verify_current(self, time: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        self.approval.verify_current(time)
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "fresh authority time capability is required",
+            )
+        time.verify_against(self.issuance_time)
+
+
+@dataclass(frozen=True)
+class VerifiedApplicationAuthority:
+    authority: dict[str, object]
+    attestation_refs: frozenset[str]
+    application_digest: str
+    approval_capability_digest: str
+    execution_capability_digest: str
+    issuance_time: VerifiedAuthorityTimeEvidence
+    verification_digest: str
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _APPLICATION_AUTHORITY_TOKEN:
+            raise RALValidationError(
+                "verified_application_authority_required",
+                "application authority was not verifier-issued",
+            )
+
+    def verify_current(
+        self,
+        execution: VerifiedSlotExecutionAuthorization,
+        time: VerifiedAuthorityTimeEvidence,
+    ) -> None:
+        if not isinstance(execution, VerifiedSlotExecutionAuthorization):
+            raise RALValidationError(
+                "verified_slot_execution_required",
+                "application authority requires verified JIT execution",
+            )
+        execution.verify_current(time)
+        self.issuance_time.verify()
+        approval = execution.approval
+        expected_attestation = (
+            "wave-approval-attestation:"
+            f"{approval.verification_digest.rsplit(':', 1)[-1][:32]}"
+        )
+        expected_authority = {
+            "schema_version": "0.1",
+            "authority_id": (
+                "wave-application-authority:"
+                f"{approval.approval.digest.rsplit(':', 1)[-1][:32]}"
+            ),
+            "principal_ref": approval.approval.principal_ref,
+            "subject_kind": "application_digest",
+            "subject_ref": self.application_digest,
+            "scopes": ["registry.application.accept"],
+            "status": "active",
+            "issued_time_ref": approval.approval.valid_from_ref,
+            "revoked_by_event": None,
+            "authorship_attestation_ref": expected_attestation,
+        }
+        material = {
+            "authority_digest": sha256_ref(expected_authority),
+            "attestation_refs": [expected_attestation],
+            "application_digest": self.application_digest,
+            "approval_capability_digest": approval.verification_digest,
+            "execution_capability_digest": execution.verification_digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
+        }
+        if (
+            approval.application_digest != self.application_digest
+            or approval.application.get("requested_scopes")
+            != ["registry.application.accept"]
+            or self.authority != expected_authority
+            or self.attestation_refs != frozenset({expected_attestation})
+            or self.approval_capability_digest != approval.verification_digest
+            or self.execution_capability_digest != execution.verification_digest
+            or self.verification_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "verified_application_authority_required",
+                "application authority differs from approval and JIT evidence",
+            )
+
+
+def derive_verified_application_authority(
+    application_digest: str,
+    execution: VerifiedSlotExecutionAuthorization,
+    time: VerifiedAuthorityTimeEvidence,
+) -> VerifiedApplicationAuthority:
+    if not isinstance(execution, VerifiedSlotExecutionAuthorization) or not isinstance(
+        time, VerifiedAuthorityTimeEvidence
+    ):
+        raise RALValidationError(
+            "verified_application_authority_required",
+            "application authority requires verified JIT and time capabilities",
+        )
+    execution.verify_current(time)
+    approval = execution.approval
+    if approval.application_digest != application_digest:
+        raise RALValidationError(
+            "verified_application_authority_required",
+            "approval and application digest differ",
+        )
+    expected_attestation = (
+        "wave-approval-attestation:"
+        f"{approval.verification_digest.rsplit(':', 1)[-1][:32]}"
+    )
+    authority = {
+        "schema_version": "0.1",
+        "authority_id": (
+            "wave-application-authority:"
+            f"{approval.approval.digest.rsplit(':', 1)[-1][:32]}"
+        ),
+        "principal_ref": approval.approval.principal_ref,
+        "subject_kind": "application_digest",
+        "subject_ref": application_digest,
+        "scopes": ["registry.application.accept"],
+        "status": "active",
+        "issued_time_ref": approval.approval.valid_from_ref,
+        "revoked_by_event": None,
+        "authorship_attestation_ref": expected_attestation,
+    }
+    material = {
+        "authority_digest": sha256_ref(authority),
+        "attestation_refs": [expected_attestation],
+        "application_digest": application_digest,
+        "approval_capability_digest": approval.verification_digest,
+        "execution_capability_digest": execution.verification_digest,
+        "issuance_time_digest": time.verification_digest,
+    }
+    capability = VerifiedApplicationAuthority(
+        authority=authority,
+        attestation_refs=frozenset({expected_attestation}),
+        application_digest=application_digest,
+        approval_capability_digest=approval.verification_digest,
+        execution_capability_digest=execution.verification_digest,
+        issuance_time=time,
+        verification_digest=sha256_ref(material),
+        _token=_APPLICATION_AUTHORITY_TOKEN,
+    )
+    capability.verify_current(execution, time)
+    return capability
 
 
 def _parse_raw_intent(raw_item: RawPrincipalItemSnapshot) -> dict[str, object]:
@@ -316,8 +628,13 @@ def verify_application_approval(
     host_observation: PrincipalHostObservation,
     *,
     expected_principal_ref: str,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedApplicationApproval:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "application approval requires verified time evidence",
+        )
     parsed = (
         approval
         if isinstance(approval, PrincipalApplicationApproval)
@@ -347,18 +664,20 @@ def verify_application_approval(
             "principal_approval_mismatch",
             "application approval binds another principal or application",
         )
-    time.verify(parsed.valid_from_ref, parsed.expires_at_ref)
+    time.verify_current(parsed.valid_from_ref, parsed.expires_at_ref)
     material = {
         "approval_digest": parsed.digest,
         "application_digest": application_digest,
         "raw_item_digest": principal_item.evidence_digest,
         "host_observation_digest": host_observation.digest,
+        "issuance_time_digest": time.verification_digest,
     }
     return VerifiedApplicationApproval(
         approval=parsed,
         application=canonical_application,
         raw_item=principal_item,
         host=host_observation,
+        issuance_time=time,
         application_digest=application_digest,
         verification_digest=sha256_ref(material),
         _token=_APPROVAL_TOKEN,
@@ -377,7 +696,7 @@ def verify_slot_execution_authorization(
     host_observation: PrincipalHostObservation | None,
     *,
     expected_principal_ref: str,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedSlotExecutionAuthorization:
     if authorization is None:
         raise RALValidationError(
@@ -394,7 +713,12 @@ def verify_slot_execution_authorization(
             "principal_authorship_unverified",
             "execution authorization lacks principal evidence",
         )
-    approval.verify()
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "slot execution requires verified time evidence",
+        )
+    approval.verify_current(time)
     parsed = (
         authorization
         if isinstance(authorization, SlotExecutionAuthorization)
@@ -490,7 +814,7 @@ def verify_slot_execution_authorization(
             "slot_execution_binding_mismatch",
             "execution authorization binds stale or different state",
         )
-    time.verify(parsed.valid_from_ref, parsed.expires_at_ref)
+    time.verify_current(parsed.valid_from_ref, parsed.expires_at_ref)
     status_digest = sha256_ref(status)
     material = {
         "authorization_digest": parsed.digest,
@@ -498,6 +822,7 @@ def verify_slot_execution_authorization(
         "request_digest": request.digest,
         "plan_digest": parsed_plan.digest,
         "current_status_digest": status_digest,
+        "issuance_time_digest": time.verification_digest,
     }
     return VerifiedSlotExecutionAuthorization(
         authorization=parsed,
@@ -506,6 +831,7 @@ def verify_slot_execution_authorization(
         plan_digest=parsed_plan.digest,
         current_status_digest=status_digest,
         application_approval_digest=approval.approval.digest,
+        issuance_time=time,
         verification_digest=sha256_ref(material),
         _token=_EXECUTION_TOKEN,
     )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -193,6 +195,124 @@ def test_record_tamper_turns_verify_red(tmp_path):
 
     with pytest.raises(RALValidationError, match="wave_store_record_invalid"):
         store.verify()
+
+
+@pytest.mark.parametrize("mutation", ("move_kind", "rename", "duplicate_kind"))
+def test_record_physical_path_must_match_embedded_kind_and_identifier(
+    tmp_path, mutation
+):
+    selected_context = store_context(tmp_path)
+    store = RegistrationWaveStore(
+        selected_context, selected_context.target_root, digest("wave")
+    )
+    result = store.put_claim("slot:1", claim())
+    source = store.root / result.relative_ref
+    if mutation == "move_kind":
+        source.replace(store.root / "records/approvals" / source.name)
+    elif mutation == "rename":
+        source.replace(source.with_name(f"record-{'0' * 32}.json"))
+    else:
+        shutil.copyfile(source, store.root / "records/approvals" / source.name)
+
+    with pytest.raises(RALValidationError, match="wave_store_record_path_mismatch"):
+        store.verify()
+
+
+@pytest.mark.parametrize("record_kind", ("candidate", "approval"))
+def test_capability_bearing_record_rebuilds_verifier_after_restart(
+    tmp_path, record_kind
+):
+    selected_context = store_context(tmp_path)
+    store = RegistrationWaveStore(
+        selected_context, selected_context.target_root, digest("wave")
+    )
+    if record_kind == "candidate":
+        result = store.put_candidate(
+            "slot:1", verified_candidate(tmp_path / "candidate")
+        )
+    else:
+        result = store.put_approval(
+            "slot:1", verified_approval(tmp_path / "approval")[0]
+        )
+    path = store.root / result.relative_ref
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["capability_digest"] = digest("forged-capability")
+    value["record_digest"] = sha256_ref(
+        {key: item for key, item in value.items() if key != "record_digest"}
+    )
+    path.write_bytes(canonical_bytes(value))
+
+    with pytest.raises(RALValidationError, match="wave_store_capability_invalid"):
+        store.verify()
+
+
+@pytest.mark.parametrize("mutation", ("missing", "resealed_raw_item"))
+def test_candidate_capability_evidence_is_rebuilt_not_self_asserted(
+    tmp_path, mutation
+):
+    selected_context = store_context(tmp_path)
+    store = RegistrationWaveStore(
+        selected_context, selected_context.target_root, digest("wave")
+    )
+    result = store.put_candidate(
+        "slot:1", verified_candidate(tmp_path / "candidate")
+    )
+    path = store.root / result.relative_ref
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        value["capability_evidence"] = None
+    else:
+        evidence = value["capability_evidence"]
+        evidence["raw_item"]["applicant_item_ref"] = "agent-item:substituted"
+        evidence["evidence_digest"] = sha256_ref(
+            {key: item for key, item in evidence.items() if key != "evidence_digest"}
+        )
+    value["record_digest"] = sha256_ref(
+        {key: item for key, item in value.items() if key != "record_digest"}
+    )
+    path.write_bytes(canonical_bytes(value))
+
+    with pytest.raises(RALValidationError, match="wave_store_capability_invalid"):
+        store.verify()
+
+
+def test_record_object_ref_is_derived_from_verified_object(tmp_path):
+    selected_context = store_context(tmp_path)
+    store = RegistrationWaveStore(
+        selected_context, selected_context.target_root, digest("wave")
+    )
+    result = store.put_approval(
+        "slot:1", verified_approval(tmp_path / "approval")[0]
+    )
+    path = store.root / result.relative_ref
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["object_ref"] = "approval:substituted"
+    value["record_digest"] = sha256_ref(
+        {key: item for key, item in value.items() if key != "record_digest"}
+    )
+    path.write_bytes(canonical_bytes(value))
+
+    with pytest.raises(RALValidationError, match="wave_store_record_binding_mismatch"):
+        store.verify()
+
+
+def test_capability_record_cannot_move_between_wave_stores(tmp_path):
+    context_a = store_context(tmp_path / "a")
+    store_a = RegistrationWaveStore(
+        context_a, context_a.target_root, digest("wave-a")
+    )
+    result = store_a.put_candidate(
+        "slot:1", verified_candidate(tmp_path / "candidate")
+    )
+    context_b = store_context(tmp_path / "b")
+    store_b = RegistrationWaveStore(
+        context_b, context_b.target_root, digest("wave-b")
+    )
+    destination = store_b.root / result.relative_ref
+    shutil.copyfile(store_a.root / result.relative_ref, destination)
+
+    with pytest.raises(RALValidationError, match="wave_store_record_binding_mismatch"):
+        store_b.verify()
 
 
 def test_identifier_text_cannot_escape_store_paths(tmp_path):

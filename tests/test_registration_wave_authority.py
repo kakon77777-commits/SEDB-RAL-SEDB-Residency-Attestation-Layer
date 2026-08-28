@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from test_registration_wave_plan import candidates, checkpoint, plan, policy
 
@@ -10,8 +12,10 @@ from sedb_ral.registration_wave_authority import (
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
     VerifiedApplicationApproval,
+    VerifiedAuthorityTimeEvidence,
     VerifiedSlotExecutionAuthorization,
     verify_application_approval,
+    verify_authority_time_evidence,
     verify_slot_execution_authorization,
 )
 from sedb_ral.registration_wave_models import (
@@ -31,7 +35,7 @@ def digest(label: str) -> str:
     return sha256_ref({"fixture": label})
 
 
-def time_evidence(
+def raw_time_evidence(
     *, now: int = 200, valid_from: int = 100, expires_at: int | None = 300
 ) -> AuthorityTimeEvidence:
     return AuthorityTimeEvidence(
@@ -43,6 +47,22 @@ def time_evidence(
         expires_at_epoch_ns=expires_at,
         source_ref="clock:synthetic",
         source_digest=digest("clock-source"),
+    )
+
+
+def time_evidence(
+    *, now: int = 200, valid_from: int = 100, expires_at: int | None = 300
+) -> VerifiedAuthorityTimeEvidence:
+    return verify_authority_time_evidence(
+        AuthorityTimeEvidence.sealed(
+            now_ref="time:now",
+            now_epoch_ns=now,
+            valid_from_ref="time:start",
+            valid_from_epoch_ns=valid_from,
+            expires_at_ref=None if expires_at is None else "time:end",
+            expires_at_epoch_ns=expires_at,
+            source_ref="clock:synthetic",
+        )
     )
 
 
@@ -162,7 +182,9 @@ def execution_intent(
         "policy_digest": selected_plan.policy_digest,
         "checkpoint_ref": selected_plan.checkpoint_ref,
         "checkpoint_digest": selected_plan.checkpoint_digest,
-        "expected_ledger_head": None,
+        "expected_ledger_head": request.expected_ledger_state[
+            "expected_ledger_head"
+        ],
         "registry_control_digest": selected_plan.registry_control_digest,
     }
 
@@ -191,7 +213,9 @@ def execution_artifact(
             "policy_digest": selected_plan.policy_digest,
             "checkpoint_ref": selected_plan.checkpoint_ref,
             "checkpoint_digest": selected_plan.checkpoint_digest,
-            "expected_ledger_head": None,
+            "expected_ledger_head": request.expected_ledger_state[
+                "expected_ledger_head"
+            ],
             "registry_control_digest": selected_plan.registry_control_digest,
             "valid_from_ref": "time:start",
             "expires_at_ref": "time:end",
@@ -206,7 +230,9 @@ def execution_artifact(
     )
 
 
-def current_status(selected_plan) -> dict[str, object]:
+def current_status(
+    selected_plan, current_ledger_head: str | None = None
+) -> dict[str, object]:
     return {
         "wave_status": "active",
         "policy_ref": selected_plan.policy_ref,
@@ -215,7 +241,7 @@ def current_status(selected_plan) -> dict[str, object]:
         "checkpoint_digest": selected_plan.checkpoint_digest,
         "registry_generation_digest": selected_plan.registry_generation_digest,
         "registry_control_digest": selected_plan.registry_control_digest,
-        "current_ledger_head": None,
+        "current_ledger_head": current_ledger_head,
     }
 
 
@@ -225,6 +251,60 @@ def test_exact_user_approval_intent_produces_verified_capability(tmp_path):
     assert isinstance(verified, VerifiedApplicationApproval)
     assert verified.application_digest == sha256_ref(application)
     assert verified.approval.status == "active"
+
+
+def test_authority_time_rejects_arbitrary_source_digest():
+    forged = raw_time_evidence()
+
+    with pytest.raises(RALValidationError, match="authority_time_source_mismatch"):
+        forged.verify("time:start", "time:end")
+
+
+def test_raw_authority_time_cannot_issue_application_approval(tmp_path):
+    application = candidates(tmp_path)[0].prepared.application
+    raw = raw_principal_item(approval_intent(application))
+    host = principal_host(raw)
+    artifact = approval_artifact(application, raw, host)
+
+    with pytest.raises(RALValidationError, match="verified_authority_time_required"):
+        verify_application_approval(
+            artifact,
+            application,
+            raw,
+            host,
+            expected_principal_ref=PRINCIPAL_REF,
+            time=raw_time_evidence(),
+        )
+
+
+def test_changed_clock_mapping_cannot_reuse_source_digest():
+    observed = AuthorityTimeEvidence.sealed(
+        now_ref="time:now",
+        now_epoch_ns=200,
+        valid_from_ref="time:start",
+        valid_from_epoch_ns=100,
+        expires_at_ref="time:end",
+        expires_at_epoch_ns=300,
+        source_ref="clock:synthetic",
+    )
+
+    with pytest.raises(RALValidationError, match="authority_time_source_mismatch"):
+        verify_authority_time_evidence(replace(observed, now_epoch_ns=201))
+
+
+def test_changed_approval_status_invalidates_issued_capability(tmp_path):
+    verified, _, application = verified_approval(tmp_path)
+    revoked = approval_artifact(
+        application,
+        verified.raw_item,
+        verified.host,
+        status="revoked",
+    )
+
+    with pytest.raises(
+        RALValidationError, match="verified_application_approval_required"
+    ):
+        replace(verified, approval=revoked).verify_current(time_evidence())
 
 
 @pytest.mark.parametrize(

@@ -9,9 +9,9 @@ from .ledger import LedgerStatus, read_verified_events, verify_ledger
 from .projection import project_events
 from .registrar import find_committed_registration, inspect_registration_prefix
 from .registration_wave_authority import (
-    AuthorityTimeEvidence,
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
+    VerifiedAuthorityTimeEvidence,
     _verify_user_item,
 )
 from .registration_wave_context import SyntheticWaveExecutionContext
@@ -45,6 +45,7 @@ class VerifiedWaveSlotRecoveryAuthorization:
     planned_slot_digest: str
     raw_item: RawPrincipalItemSnapshot = field(repr=False)
     host: PrincipalHostObservation
+    issuance_time: VerifiedAuthorityTimeEvidence
     verification_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -57,18 +58,29 @@ class VerifiedWaveSlotRecoveryAuthorization:
 
     def verify(self) -> None:
         self.host.verify()
+        self.issuance_time.verify()
         material = {
             "authorization_digest": self.authorization.digest,
             "inspection_digest": self.inspection_digest,
             "planned_slot_digest": self.planned_slot_digest,
             "raw_item_digest": self.raw_item.evidence_digest,
             "host_observation_digest": self.host.digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if sha256_ref(material) != self.verification_digest:
             raise RALValidationError(
                 "verified_wave_recovery_authority_required",
                 "recovery authority capability digest differs",
             )
+
+    def verify_current(self, time: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "fresh recovery authority time is required",
+            )
+        time.verify_against(self.issuance_time)
 
 
 def _inspection_digest(value: WaveSlotPrefixInspection) -> str:
@@ -121,7 +133,7 @@ def inspect_wave_slot_prefix(
         raise RALValidationError(
             "planned_wave_slot_required", "prefix inspection requires planned slot"
         )
-    planned.verify(context)
+    planned.verify_static()
     context.verify_before_io("recovery_inspect", planned.ledger_root)
     verification = verify_ledger(planned.ledger_root)
     if verification.status is LedgerStatus.INVALID:
@@ -213,8 +225,13 @@ def verify_wave_slot_recovery_authorization(
     host_observation: PrincipalHostObservation,
     *,
     expected_principal_ref: str,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedWaveSlotRecoveryAuthorization:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "recovery authority requires verified time evidence",
+        )
     parsed = (
         authorization
         if isinstance(authorization, WaveSlotRecoveryAuthorization)
@@ -285,7 +302,7 @@ def verify_wave_slot_recovery_authorization(
             "wave_recovery_authorization_mismatch",
             "recovery authorization bindings differ",
         )
-    time.verify(parsed.valid_from_ref, parsed.expires_at_ref)
+    time.verify_current(parsed.valid_from_ref, parsed.expires_at_ref)
     inspection_digest = _inspection_digest(inspection)
     planned_digest = _planned_digest(planned)
     material = {
@@ -294,6 +311,7 @@ def verify_wave_slot_recovery_authorization(
         "planned_slot_digest": planned_digest,
         "raw_item_digest": principal_item.evidence_digest,
         "host_observation_digest": host_observation.digest,
+        "issuance_time_digest": time.verification_digest,
     }
     return VerifiedWaveSlotRecoveryAuthorization(
         authorization=parsed,
@@ -301,6 +319,7 @@ def verify_wave_slot_recovery_authorization(
         planned_slot_digest=planned_digest,
         raw_item=principal_item,
         host=host_observation,
+        issuance_time=time,
         verification_digest=sha256_ref(material),
         _token=_RECOVERY_TOKEN,
     )
@@ -356,6 +375,8 @@ def recover_synthetic_wave_slot_result(
     inspection: WaveSlotPrefixInspection,
     planned: PlannedWaveSlot,
     store: RegistrationWaveStore,
+    *,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> SyntheticWaveSlotRecoveryResult:
     if authorization is None:
         raise RALValidationError(
@@ -367,7 +388,12 @@ def recover_synthetic_wave_slot_result(
             "verified_wave_recovery_authority_required",
             "plain recovery authority cannot recover a result",
         )
-    authorization.verify()
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "recovery requires fresh verified time",
+        )
+    authorization.verify_current(time)
     if (
         authorization.inspection_digest != _inspection_digest(inspection)
         or authorization.planned_slot_digest != _planned_digest(planned)

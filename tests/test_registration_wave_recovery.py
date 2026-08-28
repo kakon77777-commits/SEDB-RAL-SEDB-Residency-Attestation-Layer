@@ -12,11 +12,10 @@ from test_registration_wave_authority import (
 )
 from test_registration_wave_engine import (
     CTCL,
-    VERIFIED_ATTESTATIONS,
-    application_authority,
     engine_context,
     setup_slot_one,
     store_for_engine,
+    verified_application_authority,
 )
 from test_registration_wave_engine import (
     published_storage as engine_published_storage,
@@ -25,7 +24,11 @@ from test_registration_wave_policy import policy_time
 
 from sedb_ral.errors import RALValidationError
 from sedb_ral.registrar import commit_admission_plan
-from sedb_ral.registration_wave_engine import plan_wave_slot, simulate_wave_slot
+from sedb_ral.registration_wave_engine import (
+    plan_wave_slot,
+    simulate_wave_slot,
+    verify_synthetic_wave_result_prefix,
+)
 from sedb_ral.registration_wave_models import (
     SyntheticWaveSlotRecoveryResult,
     WaveSlotReceipt,
@@ -58,34 +61,39 @@ def prepared_state(tmp_path, storage, *, mode: str):
     ) = setup_slot_one(tmp_path, storage)
     context = engine_context(tmp_path)
     context.target_root.mkdir()
-    store = store_for_engine(context)
+    store = store_for_engine(context, selected_plan.digest)
     ledger_root = context.target_root / "ledger"
+    result_prefix = verify_synthetic_wave_result_prefix(
+        context, selected_plan, store, ledger_root
+    )
     planned = plan_wave_slot(
         context,
         candidate=candidate,
         wave_plan=selected_plan,
         slot_request=request,
         execution_authorization=execution_authorization,
+        result_prefix=result_prefix,
         policy_context=policy_context,
         policy_storage=storage,
         policy_time=policy_time(),
-        application_authority=application_authority(candidate),
-        verified_attestation_refs=VERIFIED_ATTESTATIONS,
+        application_authority=verified_application_authority(
+            candidate, execution_authorization
+        ),
         ctcl_receipt=CTCL,
         ledger_root=ledger_root,
         staging_parent=context.target_root / "staging",
     )
     if mode == "durable":
-        simulate_wave_slot(context, planned, store)
+        simulate_wave_slot(context, planned, store, time=policy_time())
     else:
         commit_admission_plan(
             planned.ledger_root,
             planned.registrar_plan,
             planned.candidate.prepared,
             planned.decision,
-            planned.application_authority,
+            planned.application_authority.authority,
             planned.ctcl_receipt,
-            verified_attestation_refs=planned.verified_attestation_refs,
+            verified_attestation_refs=planned.application_authority.attestation_refs,
         )
         if mode == "partial":
             _trim_to_valid_prefix(planned.ledger_root, keep=2)
@@ -207,7 +215,9 @@ def test_missing_recovery_authorization_fails_before_new_io(
     fresh = engine_context(tmp_path / "fresh")
 
     with pytest.raises(RALValidationError, match="wave_recovery_authorization_missing"):
-        recover_synthetic_wave_slot_result(fresh, None, inspection, planned, store)
+        recover_synthetic_wave_slot_result(
+            fresh, None, inspection, planned, store, time=time_evidence()
+        )
 
     assert fresh.journal.nonzero_dimensions() == ()
 
@@ -222,7 +232,12 @@ def test_verified_recovery_produces_only_synthetic_results(
     authorization = verified_recovery_authorization(inspection, planned)
 
     recovered = recover_synthetic_wave_slot_result(
-        context, authorization, inspection, planned, store
+        context,
+        authorization,
+        inspection,
+        planned,
+        store,
+        time=time_evidence(),
     )
 
     assert isinstance(authorization, VerifiedWaveSlotRecoveryAuthorization)
@@ -236,7 +251,7 @@ def test_verified_recovery_produces_only_synthetic_results(
         store.get_recovery_result(str(planned.slot_request.slot_id)).to_dict()
         == recovered.to_dict()
     )
-    assert store.verify()["record_count"] == 1
+    assert store.verify()["record_count"] == 2
     assert context.journal.refs("synthetic_receipt_writes") == (
         str(recovered.result_id),
     )
@@ -254,10 +269,16 @@ def test_recovery_rejects_capability_bound_to_changed_inspection(
 
     with pytest.raises(RALValidationError, match="wave_recovery_prefix_changed"):
         recover_synthetic_wave_slot_result(
-            context, authorization, changed, planned, store
+            context,
+            authorization,
+            changed,
+            planned,
+            store,
+            time=time_evidence(),
         )
 
-    assert store.verify()["record_count"] == 0
+    assert store.get_recovery_result(str(planned.slot_request.slot_id)) is None
+    assert store.verify()["record_count"] == 1
 
 
 def test_recovery_authority_is_not_issued_for_existing_durable_result(
@@ -272,6 +293,29 @@ def test_recovery_authority_is_not_issued_for_existing_durable_result(
         verified_recovery_authorization(inspection, planned)
 
 
+def test_recovery_rechecks_expired_authority_before_result_write(
+    tmp_path, published_storage
+):
+    context, planned, store = prepared_state(
+        tmp_path, published_storage, mode="complete_without_result"
+    )
+    inspection = inspect_wave_slot_prefix(context, planned, store)
+    authorization = verified_recovery_authorization(inspection, planned)
+
+    with pytest.raises(RALValidationError, match="authority_time_inactive"):
+        recover_synthetic_wave_slot_result(
+            context,
+            authorization,
+            inspection,
+            planned,
+            store,
+            time=time_evidence(now=400, valid_from=350, expires_at=500),
+        )
+
+    assert store.get_recovery_result(str(planned.slot_request.slot_id)) is None
+    assert store.verify()["record_count"] == 1
+
+
 def test_recovery_replay_is_idempotent(tmp_path, published_storage):
     context, planned, store = prepared_state(
         tmp_path, published_storage, mode="complete_without_result"
@@ -280,14 +324,24 @@ def test_recovery_replay_is_idempotent(tmp_path, published_storage):
     authorization = verified_recovery_authorization(inspection, planned)
 
     first = recover_synthetic_wave_slot_result(
-        context, authorization, inspection, planned, store
+        context,
+        authorization,
+        inspection,
+        planned,
+        store,
+        time=time_evidence(),
     )
     second = recover_synthetic_wave_slot_result(
-        context, authorization, inspection, planned, store
+        context,
+        authorization,
+        inspection,
+        planned,
+        store,
+        time=time_evidence(),
     )
 
     assert first.to_dict() == second.to_dict()
-    assert store.verify()["record_count"] == 1
+    assert store.verify()["record_count"] == 2
 
 
 def test_partial_prefix_cannot_plan_continuation_without_new_policy_authority(

@@ -8,10 +8,10 @@ from pathlib import Path
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .errors import RALValidationError
 from .registration_wave_authority import (
-    AuthorityTimeEvidence,
     PrincipalHostObservation,
     RawPrincipalItemSnapshot,
     VerifiedApplicationApproval,
+    VerifiedAuthorityTimeEvidence,
     _verify_user_item,
 )
 from .registration_wave_context import SyntheticWaveExecutionContext
@@ -46,6 +46,7 @@ class VerifiedWavePolicyActivationAuthority:
     plan_digest: str
     raw_item: RawPrincipalItemSnapshot = field(repr=False)
     host: PrincipalHostObservation
+    issuance_time: VerifiedAuthorityTimeEvidence
     verification_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -58,18 +59,29 @@ class VerifiedWavePolicyActivationAuthority:
 
     def verify(self) -> None:
         self.host.verify()
+        self.issuance_time.verify()
         material = {
             "authority_digest": self.authority.digest,
             "request_digest": self.request_digest,
             "plan_digest": self.plan_digest,
             "raw_item_digest": self.raw_item.evidence_digest,
             "host_observation_digest": self.host.digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if sha256_ref(material) != self.verification_digest:
             raise RALValidationError(
                 "verified_wave_policy_authority_required",
                 "Wave policy authority capability digest differs",
             )
+
+    def verify_current(self, time: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "fresh Wave policy authority time is required",
+            )
+        time.verify_against(self.issuance_time)
 
 
 @dataclass(frozen=True)
@@ -81,6 +93,7 @@ class VerifiedWavePolicyTerminalAuthority:
     policy_digest: str
     raw_item: RawPrincipalItemSnapshot = field(repr=False)
     host: PrincipalHostObservation
+    issuance_time: VerifiedAuthorityTimeEvidence
     verification_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -93,6 +106,7 @@ class VerifiedWavePolicyTerminalAuthority:
 
     def verify(self) -> None:
         self.host.verify()
+        self.issuance_time.verify()
         material_value = dict(self.authority_value)
         observed_digest = material_value.pop("authority_digest", None)
         if observed_digest != self.authority_digest or sha256_ref(material_value) != observed_digest:
@@ -107,12 +121,22 @@ class VerifiedWavePolicyTerminalAuthority:
             "policy_digest": self.policy_digest,
             "raw_item_digest": self.raw_item.evidence_digest,
             "host_observation_digest": self.host.digest,
+            "issuance_time_digest": self.issuance_time.verification_digest,
         }
         if sha256_ref(material) != self.verification_digest:
             raise RALValidationError(
                 "verified_wave_policy_terminal_authority_required",
                 "terminal authority capability digest differs",
             )
+
+    def verify_current(self, time: VerifiedAuthorityTimeEvidence) -> None:
+        self.verify()
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "fresh terminal authority time is required",
+            )
+        time.verify_against(self.issuance_time)
 
 @dataclass(frozen=True)
 class WavePolicyActivationResult:
@@ -315,8 +339,13 @@ def verify_wave_policy_activation_authority(
     host_observation: PrincipalHostObservation,
     *,
     expected_principal_ref: str,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedWavePolicyActivationAuthority:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "Wave policy authority requires verified time evidence",
+        )
     parsed = (
         authority
         if isinstance(authority, WavePolicyActivationAuthority)
@@ -356,13 +385,14 @@ def verify_wave_policy_activation_authority(
             "wave_policy_activation_authority_mismatch",
             "Wave policy activation authority bindings differ",
         )
-    time.verify(parsed.valid_from_ref, parsed.expires_at_ref)
+    time.verify_current(parsed.valid_from_ref, parsed.expires_at_ref)
     material = {
         "authority_digest": parsed.digest,
         "request_digest": parsed_request.digest,
         "plan_digest": parsed_plan.digest,
         "raw_item_digest": principal_item.evidence_digest,
         "host_observation_digest": host_observation.digest,
+        "issuance_time_digest": time.verification_digest,
     }
     return VerifiedWavePolicyActivationAuthority(
         authority=parsed,
@@ -370,6 +400,7 @@ def verify_wave_policy_activation_authority(
         plan_digest=parsed_plan.digest,
         raw_item=principal_item,
         host=host_observation,
+        issuance_time=time,
         verification_digest=sha256_ref(material),
         _token=_POLICY_AUTHORITY_TOKEN,
     )
@@ -383,8 +414,13 @@ def verify_wave_policy_terminal_authority(
     host_observation: PrincipalHostObservation,
     *,
     expected_principal_ref: str,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> VerifiedWavePolicyTerminalAuthority:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "terminal authority requires verified time evidence",
+        )
     canonical = _canonical_object(authority)
     material = dict(canonical)
     actual_digest = material.pop("authority_digest", None)
@@ -432,7 +468,7 @@ def verify_wave_policy_terminal_authority(
             "wave_policy_terminal_authority_mismatch",
             "Wave policy terminal authority bindings differ",
         )
-    time.verify(material["valid_from_ref"], material["expires_at_ref"])
+    time.verify_current(material["valid_from_ref"], material["expires_at_ref"])
     verification_material = {
         "authority_ref": material["authority_ref"],
         "authority_digest": actual_digest,
@@ -440,6 +476,7 @@ def verify_wave_policy_terminal_authority(
         "policy_digest": parsed_policy.digest,
         "raw_item_digest": principal_item.evidence_digest,
         "host_observation_digest": host_observation.digest,
+        "issuance_time_digest": time.verification_digest,
     }
     return VerifiedWavePolicyTerminalAuthority(
         authority_ref=str(material["authority_ref"]),
@@ -449,6 +486,7 @@ def verify_wave_policy_terminal_authority(
         policy_digest=parsed_policy.digest,
         raw_item=principal_item,
         host=host_observation,
+        issuance_time=time,
         verification_digest=sha256_ref(verification_material),
         _token=_POLICY_TERMINAL_AUTHORITY_TOKEN,
     )
@@ -527,8 +565,13 @@ def activate_wave_policy(
     *,
     policy: Mapping[str, object] | RegistrationWavePolicy,
     plan: Mapping[str, object] | RegistrationWavePlan,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> WavePolicyActivationResult:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "Wave policy activation requires fresh verified time",
+        )
     parsed_plan = _parse_plan(plan)
     parsed_policy = _parse_policy(policy)
     verified_approvals = _verify_approvals(approvals, parsed_plan)
@@ -537,7 +580,9 @@ def activate_wave_policy(
             "verified_wave_policy_authority_required",
             "plain authority artifacts cannot activate Wave policy",
         )
-    authority.verify()
+    authority.verify_current(time)
+    for approval in verified_approvals:
+        approval.verify_current(time)
     parsed_request = (
         request
         if isinstance(request, WavePolicyActivationRequest)
@@ -925,8 +970,13 @@ def wave_policy_status_fields(
 def registration_wave_status(
     context: SyntheticWaveExecutionContext,
     storage: RegistryStorage,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> dict[str, object]:
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "Wave policy status requires verified time",
+        )
     context.verify_before_io("policy_status", storage.final)
     status = registry_root_status(storage=storage)
     if status.get("wave_status") == "active":
@@ -962,14 +1012,19 @@ def terminate_wave_policy(
     terminal_event: Mapping[str, object] | WaveTerminalEvent,
     authority: VerifiedWavePolicyTerminalAuthority,
     *,
-    time: AuthorityTimeEvidence,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> ActiveWavePolicyRecord:
     if not isinstance(authority, VerifiedWavePolicyTerminalAuthority):
         raise RALValidationError(
             "verified_wave_policy_terminal_authority_required",
             "plain terminal authority cannot stop Wave policy",
         )
-    authority.verify()
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "Wave policy termination requires fresh verified time",
+        )
+    authority.verify_current(time)
     terminal = (
         terminal_event
         if isinstance(terminal_event, WaveTerminalEvent)

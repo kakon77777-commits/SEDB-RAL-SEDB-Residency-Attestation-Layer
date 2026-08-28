@@ -8,9 +8,22 @@ from typing import Literal
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .contracts import validate_contract
 from .errors import RALValidationError
-from .registration_wave_authority import VerifiedApplicationApproval
+from .registration import PreparedRegistration
+from .registration_wave_authority import (
+    AuthorityTimeEvidence,
+    PrincipalHostObservation,
+    RawPrincipalItemSnapshot,
+    VerifiedApplicationApproval,
+    verify_application_approval,
+    verify_authority_time_evidence,
+)
 from .registration_wave_context import SyntheticWaveExecutionContext
-from .registration_wave_intake import VerifiedPreparedCandidate
+from .registration_wave_intake import (
+    RawApplicantItemSnapshot,
+    VerifiedPreparedCandidate,
+    verify_applicant_item_evidence,
+    verify_prepared_candidate_bindings,
+)
 from .registration_wave_models import (
     ApplicantItemEvidence,
     PrincipalApplicationApproval,
@@ -68,6 +81,238 @@ def _verify_bound(value: dict[str, object], field: str, code: str) -> None:
     actual = material.pop(field, None)
     if not isinstance(actual, str) or sha256_ref(material) != actual:
         raise RALValidationError(code, "Wave store digest differs")
+
+
+def _closed_evidence(material: dict[str, object]) -> dict[str, object]:
+    return {**material, "evidence_digest": sha256_ref(material)}
+
+
+def _verify_closed_evidence(value: object, schema: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "capability evidence is absent"
+        )
+    material = dict(value)
+    actual = material.pop("evidence_digest", None)
+    if material.get("schema") != schema or actual != sha256_ref(material):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "capability evidence digest differs"
+        )
+    return value
+
+
+def _applicant_raw_value(raw: RawApplicantItemSnapshot) -> dict[str, object]:
+    content = loads_strict(raw.content_bytes.decode("utf-8"))
+    return {
+        "provider": raw.provider,
+        "adapter_kind": raw.adapter_kind,
+        "native_thread_id": raw.native_thread_id,
+        "native_turn_id": raw.native_turn_id,
+        "source_item_role": raw.source_item_role,
+        "source_item_kind": raw.source_item_kind,
+        "source_item_status": raw.source_item_status,
+        "source_item_parent_thread_id": raw.source_item_parent_thread_id,
+        "source_item_parent_turn_id": raw.source_item_parent_turn_id,
+        "applicant_item_ref": raw.applicant_item_ref,
+        "content": content,
+    }
+
+
+def _candidate_capability_evidence(
+    candidate: VerifiedPreparedCandidate,
+) -> dict[str, object]:
+    candidate.verify()
+    return _closed_evidence(
+        {
+            "schema": "sedb-ral.verified-prepared-candidate-evidence/0.1",
+            "claim": loads_strict(
+                candidate.verified_item.raw_item.content_bytes.decode("utf-8")
+            ),
+            "item": candidate.verified_item.item.to_dict(),
+            "host": candidate.verified_item.host.to_dict(),
+            "raw_item": _applicant_raw_value(candidate.verified_item.raw_item),
+            "compatibility_host_v01": candidate.compatibility_host_v01,
+            "prepared": candidate.prepared.to_dict(),
+        }
+    )
+
+
+def _rebuild_candidate_capability(
+    candidate_value: dict[str, object], evidence_value: object
+) -> VerifiedPreparedCandidate:
+    evidence = _verify_closed_evidence(
+        evidence_value, "sedb-ral.verified-prepared-candidate-evidence/0.1"
+    )
+    raw_value = evidence.get("raw_item")
+    if not isinstance(raw_value, dict) or not isinstance(
+        raw_value.get("content"), dict
+    ):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "candidate raw evidence differs"
+        )
+    try:
+        raw = RawApplicantItemSnapshot(
+            provider=str(raw_value["provider"]),
+            adapter_kind=str(raw_value["adapter_kind"]),
+            native_thread_id=str(raw_value["native_thread_id"]),
+            native_turn_id=str(raw_value["native_turn_id"]),
+            source_item_role=str(raw_value["source_item_role"]),
+            source_item_kind=str(raw_value["source_item_kind"]),
+            source_item_status=str(raw_value["source_item_status"]),
+            source_item_parent_thread_id=str(
+                raw_value["source_item_parent_thread_id"]
+            ),
+            source_item_parent_turn_id=str(raw_value["source_item_parent_turn_id"]),
+            applicant_item_ref=str(raw_value["applicant_item_ref"]),
+            content_bytes=canonical_bytes(raw_value["content"]),
+        )
+        verified_item = verify_applicant_item_evidence(
+            evidence["claim"], evidence["item"], evidence["host"], raw
+        )
+        return verify_prepared_candidate_bindings(
+            candidate_value,
+            verified_item=verified_item,
+            compatibility_host_v01=evidence["compatibility_host_v01"],
+            prepared=PreparedRegistration.from_dict(evidence["prepared"]),
+        )
+    except (KeyError, TypeError, UnicodeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code == "wave_store_capability_invalid":
+            raise
+        raise RALValidationError(
+            "wave_store_capability_invalid", "candidate capability cannot be rebuilt"
+        ) from error
+
+
+def _principal_raw_value(raw: RawPrincipalItemSnapshot) -> dict[str, object]:
+    return {
+        "provider": raw.provider,
+        "adapter_kind": raw.adapter_kind,
+        "native_thread_id": raw.native_thread_id,
+        "native_turn_id": raw.native_turn_id,
+        "source_item_role": raw.source_item_role,
+        "source_item_kind": raw.source_item_kind,
+        "source_item_status": raw.source_item_status,
+        "source_item_parent_thread_id": raw.source_item_parent_thread_id,
+        "source_item_parent_turn_id": raw.source_item_parent_turn_id,
+        "source_item_ref": raw.source_item_ref,
+        "content": loads_strict(raw.content_bytes.decode("utf-8")),
+    }
+
+
+def _principal_host_value(host: PrincipalHostObservation) -> dict[str, object]:
+    return {
+        "provider": host.provider,
+        "adapter_kind": host.adapter_kind,
+        "native_thread_id": host.native_thread_id,
+        "native_turn_id": host.native_turn_id,
+        "source_item_role": host.source_item_role,
+        "source_item_kind": host.source_item_kind,
+        "source_item_status": host.source_item_status,
+        "source_item_ref": host.source_item_ref,
+        "observed_origin": host.observed_origin,
+        "observed_at_ref": host.observed_at_ref,
+        "observation_ref": host.observation_ref,
+        "digest": host.digest,
+    }
+
+
+def _time_value(time: object) -> dict[str, object]:
+    evidence = time.evidence
+    return {
+        **evidence._source_material(),
+        "source_digest": evidence.source_digest,
+        "verification_digest": time.verification_digest,
+    }
+
+
+def _approval_capability_evidence(
+    approval: VerifiedApplicationApproval,
+) -> dict[str, object]:
+    approval.verify()
+    return _closed_evidence(
+        {
+            "schema": "sedb-ral.verified-application-approval-evidence/0.1",
+            "application": approval.application,
+            "raw_item": _principal_raw_value(approval.raw_item),
+            "host": _principal_host_value(approval.host),
+            "issuance_time": _time_value(approval.issuance_time),
+        }
+    )
+
+
+def _rebuild_approval_capability(
+    approval_value: dict[str, object], evidence_value: object
+) -> VerifiedApplicationApproval:
+    evidence = _verify_closed_evidence(
+        evidence_value, "sedb-ral.verified-application-approval-evidence/0.1"
+    )
+    raw_value = evidence.get("raw_item")
+    host_value = evidence.get("host")
+    time_value = evidence.get("issuance_time")
+    if not all(isinstance(value, dict) for value in (raw_value, host_value, time_value)):
+        raise RALValidationError(
+            "wave_store_capability_invalid", "approval evidence is incomplete"
+        )
+    try:
+        raw = RawPrincipalItemSnapshot(
+            provider=str(raw_value["provider"]),
+            adapter_kind=str(raw_value["adapter_kind"]),
+            native_thread_id=str(raw_value["native_thread_id"]),
+            native_turn_id=str(raw_value["native_turn_id"]),
+            source_item_role=str(raw_value["source_item_role"]),
+            source_item_kind=str(raw_value["source_item_kind"]),
+            source_item_status=str(raw_value["source_item_status"]),
+            source_item_parent_thread_id=str(
+                raw_value["source_item_parent_thread_id"]
+            ),
+            source_item_parent_turn_id=str(raw_value["source_item_parent_turn_id"]),
+            source_item_ref=str(raw_value["source_item_ref"]),
+            content_bytes=canonical_bytes(raw_value["content"]),
+        )
+        host = PrincipalHostObservation(
+            provider=str(host_value["provider"]),
+            adapter_kind=str(host_value["adapter_kind"]),
+            native_thread_id=str(host_value["native_thread_id"]),
+            native_turn_id=str(host_value["native_turn_id"]),
+            source_item_role=str(host_value["source_item_role"]),
+            source_item_kind=str(host_value["source_item_kind"]),
+            source_item_status=str(host_value["source_item_status"]),
+            source_item_ref=str(host_value["source_item_ref"]),
+            observed_origin=str(host_value["observed_origin"]),
+            observed_at_ref=str(host_value["observed_at_ref"]),
+            observation_ref=str(host_value["observation_ref"]),
+            digest=str(host_value["digest"]),
+        )
+        raw_time = AuthorityTimeEvidence(
+            now_ref=str(time_value["now_ref"]),
+            now_epoch_ns=time_value["now_epoch_ns"],
+            valid_from_ref=str(time_value["valid_from_ref"]),
+            valid_from_epoch_ns=time_value["valid_from_epoch_ns"],
+            expires_at_ref=time_value["expires_at_ref"],
+            expires_at_epoch_ns=time_value["expires_at_epoch_ns"],
+            source_ref=str(time_value["source_ref"]),
+            source_digest=str(time_value["source_digest"]),
+        )
+        verified_time = verify_authority_time_evidence(raw_time)
+        if verified_time.verification_digest != time_value["verification_digest"]:
+            raise RALValidationError(
+                "wave_store_capability_invalid", "approval time capability differs"
+            )
+        approval = PrincipalApplicationApproval.from_dict(approval_value)
+        return verify_application_approval(
+            approval,
+            evidence["application"],
+            raw,
+            host,
+            expected_principal_ref=str(approval.principal_ref),
+            time=verified_time,
+        )
+    except (KeyError, TypeError, UnicodeError, RALValidationError) as error:
+        if isinstance(error, RALValidationError) and error.code == "wave_store_capability_invalid":
+            raise
+        raise RALValidationError(
+            "wave_store_capability_invalid", "approval capability cannot be rebuilt"
+        ) from error
 
 
 class RegistrationWaveStore:
@@ -176,6 +421,7 @@ class RegistrationWaveStore:
         object_digest: str,
         value: dict[str, object],
         capability_digest: str | None = None,
+        capability_evidence: dict[str, object] | None = None,
     ) -> StoreResult:
         if kind not in _KINDS or not identifier:
             raise RALValidationError(
@@ -185,9 +431,11 @@ class RegistrationWaveStore:
             "schema": "sedb-ral.registration-wave-store-record/0.1",
             "record_kind": kind,
             "record_id": identifier,
+            "wave_digest": self.expected_wave_digest,
             "object_ref": object_ref,
             "object_digest": object_digest,
             "capability_digest": capability_digest,
+            "capability_evidence": capability_evidence,
             "object": value,
         }
         record = {**material, "record_digest": sha256_ref(material)}
@@ -263,6 +511,7 @@ class RegistrationWaveStore:
             object_digest=candidate.digest,
             value=candidate.to_dict(),
             capability_digest=candidate.verification_digest,
+            capability_evidence=_candidate_capability_evidence(candidate),
         )
 
     def put_approval(
@@ -281,6 +530,7 @@ class RegistrationWaveStore:
             object_digest=approval.approval.digest,
             value=approval.approval.to_dict(),
             capability_digest=approval.verification_digest,
+            capability_evidence=_approval_capability_evidence(approval),
         )
 
     def put_slot_request(
@@ -294,6 +544,14 @@ class RegistrationWaveStore:
             object_digest=parsed.digest,
             value=parsed.to_dict(),
         )
+
+    def get_slot_request(self, identifier: str) -> WaveSlotRequest | None:
+        path = self._path("slot-requests", identifier)
+        self.context.verify_before_io("store_slot_request_read", path)
+        if not path.is_file():
+            return None
+        record = self._verify_record(path)
+        return WaveSlotRequest.from_dict(record["object"])
 
     def put_slot_result(self, identifier: str, result: object) -> StoreResult:
         if not isinstance(result, SyntheticWaveSlotExecutionResult):
@@ -351,9 +609,11 @@ class RegistrationWaveStore:
             "schema",
             "record_kind",
             "record_id",
+            "wave_digest",
             "object_ref",
             "object_digest",
             "capability_digest",
+            "capability_evidence",
             "object",
             "record_digest",
         }:
@@ -362,6 +622,16 @@ class RegistrationWaveStore:
             )
         _verify_bound(value, "record_digest", "wave_store_record_invalid")
         kind = str(value["record_kind"])
+        record_id = value["record_id"]
+        if (
+            not isinstance(record_id, str)
+            or not record_id
+            or path != self._path(kind, record_id)
+        ):
+            raise RALValidationError(
+                "wave_store_record_path_mismatch",
+                "record path does not match its kind and identifier",
+            )
         obj = value["object"]
         if not isinstance(obj, dict):
             raise RALValidationError(
@@ -383,6 +653,44 @@ class RegistrationWaveStore:
         if kind not in parsers or parsers[kind](obj) != value["object_digest"]:
             raise RALValidationError(
                 "wave_store_record_invalid", "stored object digest differs"
+            )
+        expected_refs = {
+            "claims": f"self-application-claim:{record_id}",
+            "item-evidence": obj.get("item_evidence_id"),
+            "host-observations": obj.get("observation_id"),
+            "candidates": obj.get("candidate_id"),
+            "approvals": obj.get("approval_id"),
+            "slot-requests": obj.get("request_id"),
+            "slot-results": obj.get("result_id"),
+            "recovery-results": obj.get("result_id"),
+        }
+        if (
+            value["wave_digest"] != self.expected_wave_digest
+            or value["object_ref"] != expected_refs[kind]
+        ):
+            raise RALValidationError(
+                "wave_store_record_binding_mismatch",
+                "record does not bind this Wave and verified object reference",
+            )
+        capability_digest = value["capability_digest"]
+        capability_evidence = value["capability_evidence"]
+        if kind == "candidates":
+            rebuilt = _rebuild_candidate_capability(obj, capability_evidence)
+            observed_capability_digest = rebuilt.verification_digest
+        elif kind == "approvals":
+            rebuilt = _rebuild_approval_capability(obj, capability_evidence)
+            observed_capability_digest = rebuilt.verification_digest
+        else:
+            observed_capability_digest = None
+            if capability_evidence is not None:
+                raise RALValidationError(
+                    "wave_store_capability_invalid",
+                    "non-capability record carries capability evidence",
+                )
+        if capability_digest != observed_capability_digest:
+            raise RALValidationError(
+                "wave_store_capability_invalid",
+                "stored capability digest cannot be re-established",
             )
         return value
 

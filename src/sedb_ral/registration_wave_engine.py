@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .application import authority_digest
 from .canonical import sha256_ref
 from .errors import RALValidationError
 from .ledger import LedgerStatus, read_verified_events, verify_ledger
@@ -16,7 +14,11 @@ from .registrar import (
     commit_admission_plan,
 )
 from .registration_admission import RegistrationDecision, evaluate_prepared_registration
-from .registration_wave_authority import VerifiedSlotExecutionAuthorization
+from .registration_wave_authority import (
+    VerifiedApplicationAuthority,
+    VerifiedAuthorityTimeEvidence,
+    VerifiedSlotExecutionAuthorization,
+)
 from .registration_wave_context import SyntheticWaveExecutionContext
 from .registration_wave_intake import VerifiedPreparedCandidate
 from .registration_wave_models import (
@@ -32,6 +34,7 @@ from .registration_wave_store import RegistrationWaveStore
 from .registry_root import RegistryStorage
 
 _PLANNED_TOKEN = object()
+_SYNTHETIC_PREFIX_TOKEN = object()
 
 
 def _execution_status_view(
@@ -54,22 +57,211 @@ def _execution_status_view(
 
 
 @dataclass(frozen=True)
+class VerifiedSyntheticWaveResultPrefix:
+    plan_digest: str
+    results: tuple[SyntheticWaveSlotExecutionResult, ...]
+    final_head: str | None
+    ledger_event_count: int
+    verification_digest: str
+    store: RegistrationWaveStore = field(repr=False, compare=False)
+    ledger_root: Path = field(repr=False, compare=False)
+    _token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _SYNTHETIC_PREFIX_TOKEN:
+            raise RALValidationError(
+                "verified_synthetic_prefix_required",
+                "synthetic result prefix was not verifier-issued",
+            )
+
+    def verify(
+        self,
+        context: SyntheticWaveExecutionContext,
+        plan: RegistrationWavePlan,
+    ) -> None:
+        material, results, final_head, event_count = _synthetic_prefix_material(
+            context, plan, self.store, self.ledger_root
+        )
+        if (
+            self.plan_digest != plan.digest
+            or tuple(value.digest for value in self.results)
+            != tuple(value.digest for value in results)
+            or self.final_head != final_head
+            or self.ledger_event_count != event_count
+            or self.verification_digest != sha256_ref(material)
+        ):
+            raise RALValidationError(
+                "verified_synthetic_prefix_required",
+                "synthetic result prefix is stale or mismatched",
+            )
+
+
+def _synthetic_prefix_material(
+    context: SyntheticWaveExecutionContext,
+    plan: RegistrationWavePlan,
+    store: RegistrationWaveStore,
+    ledger_root: Path,
+) -> tuple[
+    dict[str, object],
+    tuple[SyntheticWaveSlotExecutionResult, ...],
+    str | None,
+    int,
+]:
+    if not isinstance(store, RegistrationWaveStore):
+        raise RALValidationError(
+            "verified_synthetic_prefix_required", "result store is not verified"
+        )
+    if store.expected_wave_digest != plan.digest:
+        raise RALValidationError(
+            "verified_synthetic_prefix_required",
+            "result store is pinned to another Wave plan",
+        )
+    canonical_root = Path(ledger_root)
+    context.verify_before_io("synthetic_prefix_verify", canonical_root)
+    verification = verify_ledger(canonical_root)
+    if verification.status is LedgerStatus.INVALID:
+        raise RALValidationError(
+            "wave_receipt_prefix_invalid", "synthetic ledger is invalid"
+        )
+    final_head = verification.final_chain_digest
+    events = (
+        ()
+        if verification.status is LedgerStatus.EMPTY
+        else read_verified_events(canonical_root, str(final_head))
+    )
+    observed_results = tuple(
+        store.get_slot_result(f"slot:{index}") for index in range(1, 4)
+    )
+    seen_missing = False
+    results: list[SyntheticWaveSlotExecutionResult] = []
+    for result in observed_results:
+        if result is None:
+            seen_missing = True
+        elif seen_missing:
+            raise RALValidationError(
+                "wave_predecessor_missing", "synthetic result prefix has a gap"
+            )
+        else:
+            results.append(result)
+    cursor = 0
+    previous: SyntheticWaveSlotExecutionResult | None = None
+    evidence: list[dict[str, object]] = []
+    for index, result in enumerate(results, start=1):
+        request = store.get_slot_request(f"slot:{index}")
+        if request is None:
+            raise RALValidationError(
+                "wave_predecessor_missing", "stored synthetic result lacks request"
+            )
+        slot = plan.ordered_slots[index - 1]
+        appended = tuple(result.appended_events)
+        suffix = events[cursor : cursor + len(appended)]
+        observed_pairs = tuple(
+            {
+                "event_ref": str(value["event_id"]),
+                "event_digest": sha256_ref(value),
+            }
+            for value in suffix
+        )
+        previous_head = None if previous is None else previous.post_head
+        predecessor_ref = None if previous is None else previous.result_id
+        predecessor_digest = None if previous is None else previous.digest
+        if (
+            result.wave_plan_digest != plan.digest
+            or result.slot_id != slot["slot_id"]
+            or result.slot_index != index
+            or result.slot_request_ref != request.request_id
+            or result.slot_request_digest != request.digest
+            or result.pre_head != previous_head
+            or request.wave_plan_digest != plan.digest
+            or request.slot_id != slot["slot_id"]
+            or request.slot_index != index
+            or request.candidate_ref != slot["candidate_ref"]
+            or request.candidate_digest != slot["candidate_digest"]
+            or request.application_ref != slot["application_ref"]
+            or request.application_digest != slot["application_digest"]
+            or request.predecessor_receipt_ref != predecessor_ref
+            or request.predecessor_receipt_digest != predecessor_digest
+            or request.expected_ledger_state["expected_ledger_head"]
+            != previous_head
+            or request.expected_ledger_state["ledger_event_count"] != cursor
+            or tuple(appended) != observed_pairs
+            or not suffix
+            or result.post_head != suffix[-1]["integrity"]["chain_digest"]
+        ):
+            raise RALValidationError(
+                "wave_receipt_prefix_invalid",
+                "synthetic result does not extend the exact durable prefix",
+            )
+        cursor += len(suffix)
+        evidence.append(
+            {
+                "slot_index": index,
+                "request_digest": request.digest,
+                "result_digest": result.digest,
+                "post_head": result.post_head,
+                "event_count": cursor,
+            }
+        )
+        previous = result
+    expected_head = None if previous is None else previous.post_head
+    if cursor != len(events) or final_head != expected_head:
+        raise RALValidationError(
+            "wave_receipt_prefix_invalid",
+            "ledger and durable synthetic result prefix differ",
+        )
+    material = {
+        "plan_digest": plan.digest,
+        "evidence": evidence,
+        "final_head": final_head,
+        "ledger_event_count": len(events),
+    }
+    return material, tuple(results), final_head, len(events)
+
+
+def verify_synthetic_wave_result_prefix(
+    context: SyntheticWaveExecutionContext,
+    plan: Mapping[str, object] | RegistrationWavePlan,
+    store: RegistrationWaveStore,
+    ledger_root: Path,
+) -> VerifiedSyntheticWaveResultPrefix:
+    parsed_plan = (
+        plan
+        if isinstance(plan, RegistrationWavePlan)
+        else RegistrationWavePlan.from_dict(plan)
+    )
+    material, results, final_head, event_count = _synthetic_prefix_material(
+        context, parsed_plan, store, Path(ledger_root)
+    )
+    return VerifiedSyntheticWaveResultPrefix(
+        plan_digest=parsed_plan.digest,
+        results=results,
+        final_head=final_head,
+        ledger_event_count=event_count,
+        verification_digest=sha256_ref(material),
+        store=store,
+        ledger_root=Path(ledger_root),
+        _token=_SYNTHETIC_PREFIX_TOKEN,
+    )
+
+
+@dataclass(frozen=True)
 class PlannedWaveSlot:
     candidate: VerifiedPreparedCandidate
     wave_plan: RegistrationWavePlan
     slot_request: WaveSlotRequest
     execution_authorization: VerifiedSlotExecutionAuthorization
+    result_prefix: VerifiedSyntheticWaveResultPrefix
     policy_context: SyntheticWaveExecutionContext
     policy_storage: RegistryStorage
-    policy_time: object
-    application_authority: dict[str, object]
-    verified_attestation_refs: frozenset[str]
+    policy_time: VerifiedAuthorityTimeEvidence
+    application_authority: VerifiedApplicationAuthority
     ctcl_receipt: dict[str, object]
     ledger_root: Path
     staging_parent: Path
     decision: RegistrationDecision
     registrar_plan: RegistrarAdmissionPlan
     policy_status_digest: str
+    planning_time_digest: str
     plan_digest: str
     _token: object = field(repr=False, compare=False)
 
@@ -80,32 +272,60 @@ class PlannedWaveSlot:
                 "planned slot capability was not issued by the planner",
             )
 
-    def verify(self, context: SyntheticWaveExecutionContext) -> None:
+    def _material(self) -> dict[str, object]:
+        return {
+            "candidate_capability_digest": self.candidate.verification_digest,
+            "wave_plan_digest": self.wave_plan.digest,
+            "slot_request_digest": self.slot_request.digest,
+            "execution_authorization_digest": self.execution_authorization.verification_digest,
+            "result_prefix_digest": self.result_prefix.verification_digest,
+            "application_authority_capability_digest": self.application_authority.verification_digest,
+            "ctcl_receipt_digest": sha256_ref(self.ctcl_receipt),
+            "registrar_plan_digest": self.registrar_plan.digest,
+            "policy_status_digest": self.policy_status_digest,
+            "planning_time_digest": self.planning_time_digest,
+        }
+
+    def verify_static(self) -> None:
         self.candidate.verify()
+        self.policy_time.verify()
         self.execution_authorization.verify()
+        self.application_authority.verify_current(
+            self.execution_authorization, self.application_authority.issuance_time
+        )
+        if (
+            self.planning_time_digest != self.policy_time.verification_digest
+            or self.plan_digest != sha256_ref(self._material())
+        ):
+            raise RALValidationError(
+                "planned_wave_slot_stale", "planned slot bindings changed"
+            )
+
+    def verify(
+        self,
+        context: SyntheticWaveExecutionContext,
+        time: VerifiedAuthorityTimeEvidence,
+    ) -> None:
+        self.verify_static()
+        if not isinstance(time, VerifiedAuthorityTimeEvidence):
+            raise RALValidationError(
+                "verified_authority_time_required",
+                "slot execution requires fresh verified time",
+            )
+        self.execution_authorization.verify_current(time)
+        self.application_authority.verify_current(
+            self.execution_authorization, time
+        )
+        self.result_prefix.verify(context, self.wave_plan)
         status = registration_wave_status(
-            self.policy_context, self.policy_storage, self.policy_time
+            self.policy_context, self.policy_storage, time
         )
         require_wave_execution(status)
         status_view = _execution_status_view(
             status, self.wave_plan, self.slot_request
         )
-        material = {
-            "candidate_capability_digest": self.candidate.verification_digest,
-            "wave_plan_digest": self.wave_plan.digest,
-            "slot_request_digest": self.slot_request.digest,
-            "execution_authorization_digest": self.execution_authorization.verification_digest,
-            "application_authority_digest": authority_digest(
-                self.application_authority
-            ),
-            "verified_attestation_refs": sorted(self.verified_attestation_refs),
-            "ctcl_receipt_digest": sha256_ref(self.ctcl_receipt),
-            "registrar_plan_digest": self.registrar_plan.digest,
-            "policy_status_digest": sha256_ref(status_view),
-        }
         if (
             self.policy_status_digest != sha256_ref(status_view)
-            or self.plan_digest != sha256_ref(material)
         ):
             raise RALValidationError(
                 "planned_wave_slot_stale", "planned slot bindings changed"
@@ -130,11 +350,11 @@ def plan_wave_slot(
     wave_plan: Mapping[str, object] | RegistrationWavePlan,
     slot_request: Mapping[str, object] | WaveSlotRequest,
     execution_authorization: VerifiedSlotExecutionAuthorization,
+    result_prefix: VerifiedSyntheticWaveResultPrefix,
     policy_context: SyntheticWaveExecutionContext,
     policy_storage: RegistryStorage,
-    policy_time: object,
-    application_authority: Mapping[str, object],
-    verified_attestation_refs: AbstractSet[str],
+    policy_time: VerifiedAuthorityTimeEvidence,
+    application_authority: VerifiedApplicationAuthority,
     ctcl_receipt: Mapping[str, object],
     ledger_root: Path,
     staging_parent: Path,
@@ -150,8 +370,24 @@ def plan_wave_slot(
             "verified_slot_execution_required",
             "slot planner requires verified execution authorization",
         )
+    if not isinstance(policy_time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "slot planning requires fresh verified time",
+        )
+    if not isinstance(result_prefix, VerifiedSyntheticWaveResultPrefix):
+        raise RALValidationError(
+            "verified_synthetic_prefix_required",
+            "slot planning requires a verified durable synthetic prefix",
+        )
+    if not isinstance(application_authority, VerifiedApplicationAuthority):
+        raise RALValidationError(
+            "verified_application_authority_required",
+            "slot planning rejects raw authority and attestation values",
+        )
     candidate.verify()
-    execution_authorization.verify()
+    execution_authorization.verify_current(policy_time)
+    application_authority.verify_current(execution_authorization, policy_time)
     plan = (
         wave_plan
         if isinstance(wave_plan, RegistrationWavePlan)
@@ -162,6 +398,32 @@ def plan_wave_slot(
         if isinstance(slot_request, WaveSlotRequest)
         else WaveSlotRequest.from_dict(slot_request)
     )
+    result_prefix.verify(context, plan)
+    if (
+        result_prefix.ledger_root.resolve(strict=False)
+        != Path(ledger_root).resolve(strict=False)
+    ):
+        raise RALValidationError(
+            "verified_synthetic_prefix_required",
+            "prefix store or ledger root differs from this execution",
+        )
+    expected_slot_index = len(result_prefix.results) + 1
+    predecessor = None if not result_prefix.results else result_prefix.results[-1]
+    if (
+        request.slot_index != expected_slot_index
+        or request.expected_ledger_state["expected_ledger_head"]
+        != result_prefix.final_head
+        or request.expected_ledger_state["ledger_event_count"]
+        != result_prefix.ledger_event_count
+        or request.predecessor_receipt_ref
+        != (None if predecessor is None else predecessor.result_id)
+        or request.predecessor_receipt_digest
+        != (None if predecessor is None else predecessor.digest)
+    ):
+        raise RALValidationError(
+            "wave_predecessor_missing",
+            "slot request does not immediately extend the durable synthetic prefix",
+        )
     context.verify_before_io("slot_plan", Path(ledger_root))
     context.verify_before_io("slot_stage", Path(staging_parent))
     status = registration_wave_status(policy_context, policy_storage, policy_time)
@@ -191,7 +453,8 @@ def plan_wave_slot(
         raise RALValidationError(
             "wave_slot_policy_status_mismatch", "execution status changed"
         )
-    canonical_authority = dict(application_authority)
+    canonical_authority = application_authority.authority
+    verified_attestation_refs = application_authority.attestation_refs
     projection = _source_projection(
         Path(ledger_root), request.expected_ledger_state["expected_ledger_head"]
     )
@@ -206,6 +469,7 @@ def plan_wave_slot(
             "wave_slot_decision_not_accepted",
             f"registration decision is {decision.decision}",
         )
+    result_prefix.store.put_slot_request(str(request.slot_id), request)
     Path(staging_parent).mkdir(parents=True, exist_ok=True)
     registrar_plan = build_admission_plan(
         Path(ledger_root),
@@ -218,35 +482,36 @@ def plan_wave_slot(
         staging_parent=Path(staging_parent),
     )
     context.journal.record("staging_writes", f"registrar-plan:{registrar_plan.digest}")
-    frozen_attestations = frozenset(verified_attestation_refs)
     status_digest = sha256_ref(status_view)
     material = {
         "candidate_capability_digest": candidate.verification_digest,
         "wave_plan_digest": plan.digest,
         "slot_request_digest": request.digest,
         "execution_authorization_digest": execution_authorization.verification_digest,
-        "application_authority_digest": authority_digest(canonical_authority),
-        "verified_attestation_refs": sorted(frozen_attestations),
+        "result_prefix_digest": result_prefix.verification_digest,
+        "application_authority_capability_digest": application_authority.verification_digest,
         "ctcl_receipt_digest": sha256_ref(dict(ctcl_receipt)),
         "registrar_plan_digest": registrar_plan.digest,
         "policy_status_digest": status_digest,
+        "planning_time_digest": policy_time.verification_digest,
     }
     return PlannedWaveSlot(
         candidate=candidate,
         wave_plan=plan,
         slot_request=request,
         execution_authorization=execution_authorization,
+        result_prefix=result_prefix,
         policy_context=policy_context,
         policy_storage=policy_storage,
         policy_time=policy_time,
-        application_authority=canonical_authority,
-        verified_attestation_refs=frozen_attestations,
+        application_authority=application_authority,
         ctcl_receipt=dict(ctcl_receipt),
         ledger_root=Path(ledger_root),
         staging_parent=Path(staging_parent),
         decision=decision,
         registrar_plan=registrar_plan,
         policy_status_digest=status_digest,
+        planning_time_digest=policy_time.verification_digest,
         plan_digest=sha256_ref(material),
         _token=_PLANNED_TOKEN,
     )
@@ -276,21 +541,61 @@ def simulate_wave_slot(
     context: SyntheticWaveExecutionContext,
     planned: PlannedWaveSlot,
     store: RegistrationWaveStore,
+    *,
+    time: VerifiedAuthorityTimeEvidence,
 ) -> SyntheticWaveSlotExecutionResult:
     if not isinstance(planned, PlannedWaveSlot):
         raise RALValidationError(
             "planned_wave_slot_required", "simulate requires planned slot capability"
         )
-    planned.verify(context)
+    if not isinstance(time, VerifiedAuthorityTimeEvidence):
+        raise RALValidationError(
+            "verified_authority_time_required",
+            "slot execution requires fresh verified time",
+        )
+    if store.root.resolve(strict=False) != planned.result_prefix.store.root.resolve(
+        strict=False
+    ):
+        raise RALValidationError(
+            "verified_synthetic_prefix_required",
+            "execution store differs from the planned result prefix",
+        )
+    planned.verify_static()
+    planned.execution_authorization.verify_current(time)
+    planned.application_authority.verify_current(
+        planned.execution_authorization, time
+    )
+    current_status = registration_wave_status(
+        planned.policy_context, planned.policy_storage, time
+    )
+    require_wave_execution(current_status)
+    existing = store.get_slot_result(str(planned.slot_request.slot_id))
+    if existing is not None:
+        current_prefix = verify_synthetic_wave_result_prefix(
+            context, planned.wave_plan, store, planned.ledger_root
+        )
+        if (
+            len(current_prefix.results) != planned.slot_request.slot_index
+            or current_prefix.results[-1].to_dict() != existing.to_dict()
+            or existing.slot_request_digest != planned.slot_request.digest
+            or existing.execution_authorization_digest
+            != planned.execution_authorization.authorization.digest
+        ):
+            raise RALValidationError(
+                "wave_slot_result_mismatch",
+                "existing synthetic result does not match the planned slot",
+            )
+        return existing
+    planned.verify(context, time)
     context.verify_before_io("slot_commit", planned.ledger_root)
     receipt = commit_admission_plan(
         planned.ledger_root,
         planned.registrar_plan,
         planned.candidate.prepared,
         planned.decision,
-        planned.application_authority,
+        planned.application_authority.authority,
         planned.ctcl_receipt,
-        verified_attestation_refs=planned.verified_attestation_refs,
+        verified_attestation_refs=planned.application_authority.attestation_refs,
     )
     events = read_verified_events(planned.ledger_root, receipt.final_head)
     event_by_id = {str(value["event_id"]): value for value in events}
