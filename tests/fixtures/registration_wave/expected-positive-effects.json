@@ -1,0 +1,63 @@
+{
+  "fixture_reads": [
+    "fixture:claim:1",
+    "fixture:item:1",
+    "fixture:host:1",
+    "fixture:claim:2",
+    "fixture:item:2",
+    "fixture:host:2",
+    "fixture:claim:3",
+    "fixture:item:3",
+    "fixture:host:3"
+  ],
+  "staging_writes": [
+    "staging:claim:1",
+    "staging:item:1",
+    "staging:host:1",
+    "staging:candidate:1",
+    "staging:approval:1",
+    "staging:request:1",
+    "staging:result:1",
+    "staging:claim:2",
+    "staging:item:2",
+    "staging:host:2",
+    "staging:candidate:2",
+    "staging:approval:2",
+    "staging:request:2",
+    "staging:result:2",
+    "staging:claim:3",
+    "staging:item:3",
+    "staging:host:3",
+    "staging:candidate:3",
+    "staging:approval:3",
+    "staging:request:3",
+    "staging:result:3",
+    "staging:wave-plan",
+    "staging:wave-policy",
+    "staging:active-policy",
+    "evidence/registration-wave-policy-activation-00000000000000000001.json",
+    "staging:readback:wave-readback:2ce933e81c5ebb59be5c6feb",
+    "staging:readback:wave-readback:dac09698ff2ff3d001b99c22",
+    "staging:readback:wave-readback:3feb2a50d64a53ad007aadb8"
+  ],
+  "synthetic_ledger_writes": [
+    "evt_authority_granted_478668472e6970e3",
+    "evt_application_submitted_e91a148915d2d765",
+    "evt_application_accepted_e91a148915d2d765",
+    "evt_resident_registered_e91a148915d2d765",
+    "evt_authority_granted_a35c8fd907179c44",
+    "evt_application_submitted_2fe4f4c65a14018d",
+    "evt_application_accepted_2fe4f4c65a14018d",
+    "evt_resident_registered_2fe4f4c65a14018d",
+    "evt_authority_granted_c8aadb05f85b49c9",
+    "evt_application_submitted_7b4e0d6128fb646a",
+    "evt_application_accepted_7b4e0d6128fb646a",
+    "evt_resident_registered_7b4e0d6128fb646a"
+  ],
+  "synthetic_receipt_writes": [
+    "evidence/registration-wave-policy-activation-00000000000000000001.json",
+    "synthetic-slot-result:1",
+    "synthetic-slot-result:2",
+    "synthetic-slot-result:3"
+  ]
+}
