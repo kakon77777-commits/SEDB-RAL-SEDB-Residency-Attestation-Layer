@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registration-wave-terminal-event.schema.json",
+  "title": "SEDB-RAL Registration Wave Terminal Event v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "event_id", "wave_plan_ref", "wave_plan_digest", "policy_ref",
+    "policy_digest", "previous_record_ref", "previous_record_digest",
+    "terminal_status", "reason_code", "created_time_ref", "authority_ref",
+    "authority_digest", "not_claimed", "event_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registration-wave-terminal-event/0.1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "wave_plan_ref": {"type": "string", "minLength": 1},
+    "wave_plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "policy_ref": {"type": "string", "minLength": 1},
+    "policy_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "previous_record_ref": {"type": "string", "minLength": 1},
+    "previous_record_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "terminal_status": {"enum": ["stopped", "completed", "expired", "revoked"]},
+    "reason_code": {"type": "string", "minLength": 1},
+    "created_time_ref": {"type": "string", "minLength": 1},
+    "authority_ref": {"type": "string", "minLength": 1},
+    "authority_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "event_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

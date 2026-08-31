@@ -116,8 +116,9 @@ $env:PYTHONPATH = "src"
 python -m pytest -q
 python scripts/validate_phase1a.py
 python scripts/validate_phase1bc.py
+$env:SEDB_V04B_ARCHIVE = "D:\Ai\work together\SEDB\releases\SEDB-v0.4B-local.zip"
 python -m pytest tests/test_sedb_v04b_integration.py -q
-$sedbArchive = "D:\Ai\work together\SEDB\releases\SEDB-v0.4B-local.zip"
+$sedbArchive = $env:SEDB_V04B_ARCHIVE
 python scripts/validate_phase2.py --sedb-archive $sedbArchive
 sedb-ral phase1a verify .
 sedb-ral phase1bc verify .

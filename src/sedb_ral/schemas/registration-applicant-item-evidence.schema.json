@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registration-applicant-item-evidence.schema.json",
+  "title": "SEDB-RAL Registration Applicant Item Evidence v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "item_evidence_id", "provider", "adapter_kind",
+    "native_thread_id", "native_turn_id", "source_item_role",
+    "source_item_kind", "source_item_status", "source_item_parent_thread_id",
+    "source_item_parent_turn_id", "applicant_item_ref",
+    "canonical_claim_digest", "raw_item_evidence_digest", "capture_status",
+    "observed_origin", "observed_at_ref", "unavailable_fields",
+    "not_claimed", "item_evidence_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registration-applicant-item-evidence/0.1"},
+    "item_evidence_id": {"type": "string", "minLength": 1},
+    "provider": {"const": "openai"},
+    "adapter_kind": {"const": "codex_app_task_tool"},
+    "native_thread_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "native_turn_id": {"type": "string", "minLength": 1},
+    "source_item_role": {"const": "assistant"},
+    "source_item_kind": {"const": "agentMessage"},
+    "source_item_status": {"const": "completed"},
+    "source_item_parent_thread_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "source_item_parent_turn_id": {"type": "string", "minLength": 1},
+    "applicant_item_ref": {"type": "string", "minLength": 1},
+    "canonical_claim_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "raw_item_evidence_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "capture_status": {"const": "host_observed"},
+    "observed_origin": {"type": "string", "pattern": "^host:", "minLength": 6},
+    "observed_at_ref": {"type": "string", "minLength": 1},
+    "unavailable_fields": {
+      "const": [
+        {
+          "field": "native_session_id",
+          "reason": "structurally_unavailable_from_codex_app_task_tool"
+        }
+      ]
+    },
+    "not_claimed": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "item_evidence_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

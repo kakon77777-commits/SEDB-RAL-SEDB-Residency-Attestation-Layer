@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/registration-wave-slot-recovery-receipt.schema.json",
+  "title": "SEDB-RAL Registration Wave Slot Recovery Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "receipt_id", "recovery_authorization_ref",
+    "recovery_authorization_digest", "wave_plan_ref", "wave_plan_digest",
+    "slot_id", "application_digest", "original_execution_authorization_ref",
+    "original_execution_authorization_digest", "verified_prefix_digest",
+    "pre_head", "post_head", "checkpoint_ref", "checkpoint_digest",
+    "current_readback_digest", "reconstructed_receipt_ref",
+    "reconstructed_receipt_digest", "status", "not_claimed", "receipt_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.registration-wave-slot-recovery-receipt/0.1"},
+    "receipt_id": {"type": "string", "minLength": 1},
+    "recovery_authorization_ref": {"type": "string", "minLength": 1},
+    "recovery_authorization_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "wave_plan_ref": {"type": "string", "minLength": 1},
+    "wave_plan_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "slot_id": {"type": "string", "minLength": 1},
+    "application_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "original_execution_authorization_ref": {"type": "string", "minLength": 1},
+    "original_execution_authorization_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "verified_prefix_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "pre_head": {"type": ["string", "null"], "minLength": 1},
+    "post_head": {"type": "string", "minLength": 1},
+    "checkpoint_ref": {"type": "string", "minLength": 1},
+    "checkpoint_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "current_readback_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "reconstructed_receipt_ref": {"type": "string", "minLength": 1},
+    "reconstructed_receipt_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "status": {"const": "recovered"},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "receipt_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

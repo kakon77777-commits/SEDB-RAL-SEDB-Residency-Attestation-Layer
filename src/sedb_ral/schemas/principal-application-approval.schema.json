@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evemisslab.com/schemas/sedb-ral/principal-application-approval.schema.json",
+  "title": "SEDB-RAL Principal Application Approval v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "approval_id", "principal_ref", "application_ref",
+    "application_digest", "source_user_item_ref", "source_user_item_digest",
+    "host_observation_ref", "host_observation_digest", "approved_scopes",
+    "valid_from_ref", "expires_at_ref", "status", "revoked_by_ref",
+    "not_claimed", "approval_digest"
+  ],
+  "properties": {
+    "schema": {"const": "sedb-ral.principal-application-approval/0.1"},
+    "approval_id": {"type": "string", "minLength": 1},
+    "principal_ref": {"type": "string", "minLength": 1},
+    "application_ref": {"type": "string", "minLength": 1},
+    "application_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "source_user_item_ref": {"type": "string", "minLength": 1},
+    "source_user_item_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "host_observation_ref": {"type": "string", "minLength": 1},
+    "host_observation_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"},
+    "approved_scopes": {"const": ["registration.application.approve"]},
+    "valid_from_ref": {"type": "string", "minLength": 1},
+    "expires_at_ref": {"type": ["string", "null"], "minLength": 1},
+    "status": {"enum": ["active", "revoked", "expired", "suspended"]},
+    "revoked_by_ref": {"type": ["string", "null"], "minLength": 1},
+    "not_claimed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "approval_digest": {"type": "string", "pattern": "^sha256:sedb-ral-json-nfc-codepoint-v1:[0-9a-f]{64}$"}
+  }
+}

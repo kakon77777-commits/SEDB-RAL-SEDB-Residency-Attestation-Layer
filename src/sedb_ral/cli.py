@@ -25,19 +25,19 @@ from .operations.cli import add_operations_parser, handle_operations
 from .phase1a import validate_phase1a
 from .phase1bc import validate_phase1bc
 from .phase2 import validate_basic_phase2
-from .projection import project_events
-from .production_operations_contracts import (
-    default_dormant_policy,
-    plan_production_operations_extension,
-)
 from .production_operations_acceptance import (
     validate_production_operations,
     write_production_operations_report,
+)
+from .production_operations_contracts import (
+    default_dormant_policy,
+    plan_production_operations_extension,
 )
 from .production_operations_layout import (
     prepare_production_operations_candidate,
     verify_production_operations_candidate,
 )
+from .projection import project_events
 from .registrar import (
     RegistrarAdmissionPlan,
     build_admission_plan,
@@ -50,6 +50,10 @@ from .registration import (
     prepare_registration,
 )
 from .registration_admission import RegistrationDecision
+from .registration_wave_cli import (
+    add_registration_wave_parser,
+    handle_registration_wave,
+)
 from .registry_recovery import (
     create_registry_checkpoint,
     rehearse_registry_restore,
@@ -312,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sedb-archive", required=True, type=Path
     )
     add_operations_parser(commands)
+    add_registration_wave_parser(commands)
     return parser
 
 
@@ -490,6 +495,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "operations":
         return handle_operations(args)
+    if args.command == "registration-wave":
+        return handle_registration_wave(args)
     if args.command == "canonicalize":
         try:
             text = args.file.read_text(encoding="utf-8")

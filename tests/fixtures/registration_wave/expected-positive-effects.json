@@ -1,0 +1,54 @@
+{
+  "fixture_reads": [
+    "claim:sha256:sedb-ral-json-nfc-codepoint-v1:71ae0e5e77c46a9abb839225df914c35f7fa6382a0eafa08d18b35cddbcb77fb",
+    "item:item-evidence:wave-seat-1:sha256:sedb-ral-json-nfc-codepoint-v1:24d92fbf06ac04dc361a4696c28751471fa8bba254672bec6f072814be468dd6",
+    "host:observation:wave-seat-1:sha256:sedb-ral-json-nfc-codepoint-v1:3c4f45e359aeab474eae1a330902c45c5a3cc38cb59e8da21193500ad01eee22",
+    "claim:sha256:sedb-ral-json-nfc-codepoint-v1:b2f4c568c4d6b4886c6a6bc3a6b572523beadb89c4d5b23c8bdc544f83db77ce",
+    "item:item-evidence:wave-seat-2:sha256:sedb-ral-json-nfc-codepoint-v1:dc91219ba0a7eea11f9a95dae2d1577337a27c7337e45765f774f0bd1a48d8f2",
+    "host:observation:wave-seat-2:sha256:sedb-ral-json-nfc-codepoint-v1:4a45c6a626b988ac2465238c5805ea824e78f73a0b516d7207c61f06a2e5e280",
+    "claim:sha256:sedb-ral-json-nfc-codepoint-v1:648ff8bc139e857b9deb86cdf26026797b6e43aa56c38bb9456770234c638194",
+    "item:item-evidence:wave-seat-3:sha256:sedb-ral-json-nfc-codepoint-v1:d0db10cb7a7f3e43c8a54f9ad7d16a8a569d4ccaf32c0992df195c43c8ee62c8",
+    "host:observation:wave-seat-3:sha256:sedb-ral-json-nfc-codepoint-v1:22432ee4fd3f7f2ecf590ac46e79ca628359d56f9e14b2ca0126a53ff088e2bb"
+  ],
+  "staging_writes": [
+    "wave-policy-request:sha256:sedb-ral-json-nfc-codepoint-v1:c3a59e69dc879fd9c0857900f895674687c41cb79b1fba4af0bc21ff89f08191",
+    "wave-policy-authority:sha256:sedb-ral-json-nfc-codepoint-v1:7c82923cd1b9e6cb78ded79a8666622983af688c2d7be307c7e94227465b46da",
+    "wave-policy-acl:sha256:sedb-ral-json-nfc-codepoint-v1:e15d2eb34761cec6705970b05e9e0e4c38a869deadb86dd947d57cb191e3de48",
+    "application-approval:sha256:sedb-ral-json-nfc-codepoint-v1:8bd4c75b84086e9e89f2467d64d7f7990088f26726b43d9d28271164fd3958b7",
+    "application-approval:sha256:sedb-ral-json-nfc-codepoint-v1:2f72314ca98449828e5c2a0bc1804e9d7386ac49bf095753c57963cf9fcbe9e8",
+    "application-approval:sha256:sedb-ral-json-nfc-codepoint-v1:2fc54b0a34eb530587ea93447425e38c40513e6c44cae4560a18c6c7bb080f91",
+    "policy:wave-1",
+    "active-policy/00000000000000000001.json",
+    "evidence/registration-wave-policy-activation-00000000000000000001.json",
+    "wave-store:manifest",
+    "records/slot-requests/record-e88b86727fbdcdfc8d139fa8a59b8059.json",
+    "registrar-plan:sha256:sedb-ral-json-nfc-codepoint-v1:8672a8c529dd08d7b82e095abbc702d3a1223bdbb3542bbd8937a7afdbd6140e",
+    "records/slot-results/record-c02f78e00442f5cdb1312bc18e1d1dc4.json",
+    "records/slot-requests/record-697676e61176169fd1a1a0f12dac95a8.json",
+    "registrar-plan:sha256:sedb-ral-json-nfc-codepoint-v1:d2a38db7b640b945923c5eea1e805356c7ddc858c07e9f6e45062f563a74289f",
+    "records/slot-results/record-a675e334113e9bb0c544c592086789e6.json",
+    "records/slot-requests/record-86c5ce8638cd7548550ca3422f591b8b.json",
+    "registrar-plan:sha256:sedb-ral-json-nfc-codepoint-v1:e7416f66ddbe039ba659d7564be0040b50cf001c04cdd4cb3dc4f1de9f94f9c6",
+    "records/slot-results/record-35e4971db6bbdf3fef0718433539cb7a.json"
+  ],
+  "synthetic_ledger_writes": [
+    "ledger-event:evt_authority_granted_478668472e6970e3",
+    "ledger-event:evt_application_submitted_e91a148915d2d765",
+    "ledger-event:evt_application_accepted_e91a148915d2d765",
+    "ledger-event:evt_resident_registered_e91a148915d2d765",
+    "ledger-event:evt_authority_granted_a35c8fd907179c44",
+    "ledger-event:evt_application_submitted_2fe4f4c65a14018d",
+    "ledger-event:evt_application_accepted_2fe4f4c65a14018d",
+    "ledger-event:evt_resident_registered_2fe4f4c65a14018d",
+    "ledger-event:evt_authority_granted_c8aadb05f85b49c9",
+    "ledger-event:evt_application_submitted_7b4e0d6128fb646a",
+    "ledger-event:evt_application_accepted_7b4e0d6128fb646a",
+    "ledger-event:evt_resident_registered_7b4e0d6128fb646a"
+  ],
+  "synthetic_receipt_writes": [
+    "evidence/registration-wave-policy-activation-00000000000000000001.json",
+    "synthetic-slot-result:1",
+    "synthetic-slot-result:2",
+    "synthetic-slot-result:3"
+  ]
+}

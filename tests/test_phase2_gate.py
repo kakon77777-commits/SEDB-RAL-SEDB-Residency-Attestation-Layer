@@ -1,11 +1,11 @@
 import copy
 import json
-import os
 import subprocess
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from sedb_archive_locator import locate_sedb_v04b_archive, require_sedb_v04b_archive
 
 import sedb_ral.phase2 as phase2_module
 from scripts.validate_phase2 import main as script_main
@@ -21,12 +21,7 @@ from sedb_ral.phase2 import (
 )
 
 ROOT = Path(__file__).parents[1]
-ARCHIVE = Path(
-    os.environ.get(
-        "SEDB_V04B_ARCHIVE",
-        ROOT.parent / "SEDB/releases/SEDB-v0.4B-local.zip",
-    )
-)
+ARCHIVE = locate_sedb_v04b_archive(start=ROOT)
 WRONG_HASH = json.loads(
     (ROOT / "fixtures/sedb/wrong-archive-hash.json").read_text(encoding="utf-8")
 )
@@ -44,9 +39,7 @@ CTCL_RETRIEVE_RESPONSE = {
 
 @pytest.fixture(scope="module")
 def phase2_report():
-    if not ARCHIVE.is_file():
-        pytest.skip("archive_unavailable")
-    return validate_basic_phase2(ROOT, ARCHIVE)
+    return validate_basic_phase2(ROOT, require_sedb_v04b_archive(ARCHIVE))
 
 
 def finalize_for_test(report):
@@ -95,7 +88,7 @@ def test_basic_phase2_gate_passes_exact_archive(phase2_report):
 
 
 def test_unknown_actual_field_is_unmapped_and_overall_passes(monkeypatch):
-    if not ARCHIVE.is_file():
+    if ARCHIVE is None or not ARCHIVE.is_file():
         pytest.skip("archive_unavailable")
     run_integration = phase2_module._run_task5_integration
 
@@ -125,7 +118,7 @@ def test_unknown_actual_field_is_unmapped_and_overall_passes(monkeypatch):
 
 
 def test_mapped_actual_field_contradiction_fails_overall(monkeypatch):
-    if not ARCHIVE.is_file():
+    if ARCHIVE is None or not ARCHIVE.is_file():
         pytest.skip("archive_unavailable")
     run_integration = phase2_module._run_task5_integration
 
@@ -158,7 +151,7 @@ def test_mapped_actual_field_contradiction_fails_overall(monkeypatch):
 
 
 def test_phase2_gate_rejects_injected_task5_network_call(tmp_path, monkeypatch):
-    if not ARCHIVE.is_file():
+    if ARCHIVE is None or not ARCHIVE.is_file():
         pytest.skip("archive_unavailable")
     injected_script = tmp_path / "validate_sedb_v04b.py"
     injected_script.write_text(
@@ -183,7 +176,9 @@ def test_phase2_gate_rejects_injected_task5_network_call(tmp_path, monkeypatch):
 
 
 def test_wrong_hash_fixture_proves_adoption_gate_red():
-    report = validate_basic_phase2(ROOT, ARCHIVE, profile=WRONG_HASH)
+    report = validate_basic_phase2(
+        ROOT, require_sedb_v04b_archive(ARCHIVE), profile=WRONG_HASH
+    )
 
     assert report.passed is False
     assert "archive_hash_mismatch" in report.error_codes

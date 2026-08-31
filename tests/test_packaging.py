@@ -1,7 +1,7 @@
-import json
 import gzip
 import hashlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -174,7 +174,7 @@ def test_clean_installed_wheel_cli_reports_phase3b_b_candidate_version(tmp_path)
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip() == "0.5.0b1"
+    assert result.stdout.strip() == "0.5.0c1"
 
 
 def test_validation_record_has_retrievable_registered_anchor():
@@ -261,14 +261,13 @@ def test_sdist_normalization_removes_archive_time_variance(tmp_path):
             member.mode = 0o644
             member.mtime = timestamp
             archive.addfile(member, io.BytesIO(payload))
-        with path.open("wb") as raw:
-            with gzip.GzipFile(
-                fileobj=raw,
-                mode="wb",
-                filename="",
-                mtime=timestamp,
-            ) as compressed:
-                compressed.write(buffer.getvalue())
+        with path.open("wb") as raw, gzip.GzipFile(
+            fileobj=raw,
+            mode="wb",
+            filename="",
+            mtime=timestamp,
+        ) as compressed:
+            compressed.write(buffer.getvalue())
 
     first = tmp_path / "first.tar.gz"
     second = tmp_path / "second.tar.gz"
