@@ -38,8 +38,8 @@ controls execute in disposable storage. The six LIMEN-owned currentness and
 cross-task controls remain explicitly `NOT_RUN_OWNER_PLAN_REQUIRED`; they may
 only run under a separately reviewed B6A plan.
 
-The positive path records exact synthetic references for nine fixture reads,
-twenty-eight staging writes, twelve ledger events, and four synthetic receipts.
+The positive path records exact runtime references for nine fixture reads,
+nineteen staging writes, twelve ledger events, and four synthetic receipts.
 All production, private, network, provider, Fabric, MCP, and external-CLI
 dimensions remain zero. Independent injected controls prove each forbidden
 dimension would turn the gate red.

@@ -495,7 +495,7 @@ def recover_synthetic_wave_slot_result(
         str(planned.slot_request.slot_id), verified_recovery
     )
     if stored.kind == "created":
-        context.journal.record("synthetic_receipt_writes", str(recovery.result_id))
+        context.record_effect("synthetic_receipt_writes", str(recovery.result_id))
     return recovery
 
 

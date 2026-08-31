@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 import tomllib
 import zipfile
+from pathlib import Path
 
 import pytest
 
 from sedb_ral import __version__
 from sedb_ral.phase3a_operations import validate_phase3a_operations
-
 
 ROOT = Path(__file__).parents[1]
 

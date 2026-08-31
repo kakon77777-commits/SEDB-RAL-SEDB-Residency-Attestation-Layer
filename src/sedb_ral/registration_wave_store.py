@@ -1061,7 +1061,7 @@ class RegistrationWaveStore:
         manifest_path = self.root / "STORE-MANIFEST.json"
         context.verify_before_io("store_manifest_write", manifest_path)
         if _write_new(manifest_path, manifest):
-            context.journal.record("staging_writes", "wave-store:manifest")
+            context.record_effect("staging_writes", "wave-store:manifest")
         elif canonical_bytes(_read_object(manifest_path, "wave_store_manifest_invalid")) != canonical_bytes(manifest):
             raise RALValidationError(
                 "wave_staging_digest_conflict", "store manifest bytes differ"
@@ -1110,7 +1110,7 @@ class RegistrationWaveStore:
         )
         self.context.verify_before_io("store_quarantine_write", path)
         if _write_new(path, value):
-            self.context.journal.record(
+            self.context.record_effect(
                 "staging_writes", path.relative_to(self.root).as_posix()
             )
 
@@ -1145,7 +1145,7 @@ class RegistrationWaveStore:
         self.context.verify_before_io("store_record_write", path)
         if _write_new(path, record):
             relative = path.relative_to(self.root).as_posix()
-            self.context.journal.record("staging_writes", relative)
+            self.context.record_effect("staging_writes", relative)
             return StoreResult("created", relative, str(record["record_digest"]))
         existing = _read_object(path, "wave_store_record_invalid")
         if canonical_bytes(existing) == canonical_bytes(record):

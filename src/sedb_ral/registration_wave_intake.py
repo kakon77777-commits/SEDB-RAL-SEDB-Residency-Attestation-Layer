@@ -402,6 +402,13 @@ def prepare_wave_candidate(
     )
     parsed_item = verified_item.item
     parsed_host = verified_item.host
+    context.record_effect("fixture_reads", f"claim:{claim_digest}")
+    context.record_effect(
+        "fixture_reads", f"item:{parsed_item.item_evidence_id}:{parsed_item.digest}"
+    )
+    context.record_effect(
+        "fixture_reads", f"host:{parsed_host.observation_id}:{parsed_host.digest}"
+    )
     selected_ids = ids_factory()
     if not isinstance(selected_ids, RegistrationIds):
         raise RALValidationError(

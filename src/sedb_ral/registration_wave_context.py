@@ -237,6 +237,11 @@ class SyntheticWaveExecutionContext:
     context_digest: str
     journal: WaveEffectJournal = field(compare=False, repr=False)
 
+    def record_effect(self, dimension: str, ref: str) -> None:
+        """Record one runtime effect against this sealed execution context."""
+        self._verify_digest()
+        self.journal.record(dimension, ref)
+
     @classmethod
     def sealed(
         cls,

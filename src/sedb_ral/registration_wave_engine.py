@@ -34,6 +34,14 @@ from .registration_wave_store import (
     RegistrationWaveStore,
     issue_verified_synthetic_slot_result,
 )
+
+
+class InjectedWaveSlotCrash(RuntimeError):
+    """Synthetic acceptance fault injected before canonical append."""
+
+
+def _before_slot_append() -> None:
+    return None
 from .registry_root import RegistryStorage
 
 _PLANNED_TOKEN = object()
@@ -503,7 +511,7 @@ def plan_wave_slot(
         verified_attestation_refs=verified_attestation_refs,
         staging_parent=Path(staging_parent),
     )
-    context.journal.record("staging_writes", f"registrar-plan:{registrar_plan.digest}")
+    context.record_effect("staging_writes", f"registrar-plan:{registrar_plan.digest}")
     status_digest = sha256_ref(status_view)
     material = {
         "candidate_capability_digest": candidate.verification_digest,
@@ -610,6 +618,7 @@ def simulate_wave_slot(
         return existing
     planned.verify(context, time)
     context.verify_before_io("slot_commit", planned.ledger_root)
+    _before_slot_append()
     receipt = commit_admission_plan(
         planned.ledger_root,
         planned.registrar_plan,
@@ -675,7 +684,7 @@ def simulate_wave_slot(
     )
     if receipt.committed:
         for event_id in receipt.event_ids:
-            context.journal.record("synthetic_ledger_writes", f"ledger-event:{event_id}")
+            context.record_effect("synthetic_ledger_writes", f"ledger-event:{event_id}")
     if stored.kind == "created":
-        context.journal.record("synthetic_receipt_writes", str(result.result_id))
+        context.record_effect("synthetic_receipt_writes", str(result.result_id))
     return result

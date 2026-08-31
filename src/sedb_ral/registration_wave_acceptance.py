@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
+from . import registration_wave_engine as wave_engine_module
 from .canonical import canonical_bytes, loads_strict, sha256_ref
 from .errors import RALValidationError
 from .production_operations_contracts import (
@@ -36,6 +38,7 @@ from .registration_wave_context import (
     WaveExecutionMode,
 )
 from .registration_wave_engine import (
+    InjectedWaveSlotCrash,
     plan_wave_slot,
     simulate_wave_slot,
     verify_synthetic_wave_result_prefix,
@@ -46,6 +49,7 @@ from .registration_wave_models import (
     PrincipalApplicationApproval,
     RegistrationWavePolicy,
     SlotExecutionAuthorization,
+    WaveSlotRecoveryAuthorization,
     WaveSlotRequest,
 )
 from .registration_wave_plan import (
@@ -54,13 +58,18 @@ from .registration_wave_plan import (
     verify_wave_receipt_prefix,
 )
 from .registration_wave_policy import (
+    _write_new_or_same,
     activate_wave_policy,
     plan_wave_policy_activation,
+    registration_wave_status,
     require_wave_execution,
     verify_wave_policy_activation_authority,
 )
 from .registration_wave_readback import build_wave_readback_bundle
-from .registration_wave_recovery import inspect_wave_slot_prefix
+from .registration_wave_recovery import (
+    inspect_wave_slot_prefix,
+    verify_wave_slot_recovery_authorization,
+)
 from .registration_wave_store import RegistrationWaveStore
 from .registry_root import (
     RegistryStorage,
@@ -79,6 +88,67 @@ from .registry_root_contracts import (
 OWNER_PLAN_CASES = frozenset(
     {"W1-019", "W1-020", "W1-021", "W1-022", "W1-047", "W1-048"}
 )
+CASE_POPULATIONS = {
+    f"W1-{index:03d}": description
+    for index, description in enumerate(
+        (
+            "three exact applicant-authored claims",
+            "one absent applicant before slot one",
+            "applicant opt-out before slot one",
+            "task turn or output mismatch",
+            "three distinct canonical thread locators",
+            "uppercase case-confusable locator",
+            "retained prepare replay",
+            "changed candidate with old approval",
+            "three independently verified approvals",
+            "registrar self-approval",
+            "missing or unreceipted Wave policy",
+            "slot one against H0",
+            "slot two still using H0",
+            "slot two against H1",
+            "slot three against H2",
+            "repeated admitted application",
+            "injected crash before append",
+            "exact durable result retry",
+            "LIMEN B6A after slot one",
+            "LIMEN B6A after slot two",
+            "LIMEN B6A after slot three",
+            "cross-resident task resolution",
+            "private request after public admission",
+            "measured positive and forbidden effects",
+            "readback rebuild reproducibility",
+            "independent full synthetic wave replay",
+            "slot three at H1 without slot two receipt",
+            "changed reordered or duplicate Wave plan",
+            "missing predecessor receipt",
+            "assistant forged or relayed principal approval",
+            "approval for a different application",
+            "application approval without JIT authority",
+            "independent registrar self-approval evidence",
+            "missing stale expired or unreceipted policy",
+            "create-only policy overwrite attempt",
+            "control digest supplied as H0",
+            "complete event chain without outer result",
+            "partial-prefix recovery authority",
+            "expired policy with pending slot",
+            "old execution authority on continuation",
+            "uppercase braced and Unicode-hyphen locator",
+            "exact duplicate canonical locator",
+            "claim digest differs from host evidence",
+            "unrelated turn or item reference",
+            "continue or non-null resident claim",
+            "failed third candidate before activation",
+            "claim-time observation reused for B6A",
+            "fresh B6A observation on rebuilt view",
+            "strict mid-chain transaction prefix",
+            "controller user message as applicant output",
+            "reasoning tool command or file applicant item",
+            "completed applicant output unavailable",
+            "exact completed assistant agent message",
+        ),
+        start=1,
+    )
+}
 _THREADS = (
     "10000000-0000-4000-8000-000000000001",
     "20000000-0000-4000-8000-000000000002",
@@ -101,6 +171,7 @@ class RegistrationWaveAcceptanceCase:
     passed: bool
     status: str
     evidence_digest: str
+    control_evidence: object
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -109,6 +180,7 @@ class RegistrationWaveAcceptanceCase:
             "passed": self.passed,
             "status": self.status,
             "evidence_digest": self.evidence_digest,
+            "control_evidence": self.control_evidence,
         }
 
 
@@ -186,6 +258,8 @@ class _PositiveRun:
     policy_context: SyntheticWaveExecutionContext
     authorizations: tuple[object, ...]
     planned_slots: tuple[object, ...]
+    replay_result_digests: tuple[str, ...]
+    readback_repeat_digests: tuple[str, ...]
 
 
 def _digest(label: str) -> str:
@@ -508,7 +582,13 @@ def _marker_context(
     )
 
 
-def _candidate(root: Path, index: int, **claim_changes: object):
+def _candidate(
+    root: Path,
+    index: int,
+    *,
+    journal: WaveEffectJournal | None = None,
+    **claim_changes: object,
+):
     claim_value = _claim(index, **claim_changes)
     raw = _raw_applicant(index, claim_value)
     item_value = _item(index, claim_value, raw)
@@ -517,6 +597,7 @@ def _candidate(root: Path, index: int, **claim_changes: object):
         root,
         f"candidate-{index}",
         root / f"candidate-{index}" / "target",
+        journal,
     )
     return prepare_wave_candidate(
         context,
@@ -670,7 +751,9 @@ def _approval(candidate: object, index: int) -> VerifiedApplicationApproval:
     )
 
 
-def _approval_with_role(candidate: object, role: str):
+def _approval_with_role(
+    candidate: object, role: str, *, observed_origin: str = "host:codex-app"
+):
     application = candidate.prepared.application
     intent = {
         "schema": "sedb-ral.principal-application-approval-intent/0.1",
@@ -686,6 +769,19 @@ def _approval_with_role(candidate: object, role: str):
         role=role,
     )
     host = _principal_host(raw)
+    if observed_origin != host.observed_origin:
+        host = PrincipalHostObservation.sealed(
+            provider=host.provider,
+            adapter_kind=host.adapter_kind,
+            native_thread_id=host.native_thread_id,
+            native_turn_id=host.native_turn_id,
+            source_item_role=host.source_item_role,
+            source_item_kind=host.source_item_kind,
+            source_item_status=host.source_item_status,
+            source_item_ref=host.source_item_ref,
+            observed_origin=observed_origin,
+            observed_at_ref=host.observed_at_ref,
+        )
     artifact = PrincipalApplicationApproval.sealed(
         {
             "schema": "sedb-ral.principal-application-approval/0.1",
@@ -721,6 +817,7 @@ def _activate_wave(
     plan: object,
     policy: RegistrationWavePolicy,
     approvals: tuple[VerifiedApplicationApproval, ...],
+    journal: WaveEffectJournal | None = None,
 ) -> tuple[SyntheticWaveExecutionContext, object]:
     request = plan_wave_policy_activation(
         plan,
@@ -786,7 +883,7 @@ def _activate_wave(
         "observed_at_ref": "ctcl:instant:acl",
     }
     acl = {**acl_material, "observation_digest": sha256_ref(acl_material)}
-    context = _marker_context(root, "wave-policy", storage.final)
+    context = _marker_context(root, "wave-policy", storage.final, journal)
     result = activate_wave_policy(
         context,
         storage,
@@ -981,45 +1078,13 @@ def _ctcl() -> dict[str, object]:
     }
 
 
-def _record_positive_effects(
-    effects: WaveEffectJournal,
-    slot_results: tuple[object, ...],
-    activation_result: object,
-    readbacks: tuple[object, ...],
-) -> None:
-    for index in (1, 2, 3):
-        for kind in ("claim", "item", "host"):
-            effects.record("fixture_reads", f"fixture:{kind}:{index}")
-        for kind in (
-            "claim",
-            "item",
-            "host",
-            "candidate",
-            "approval",
-            "request",
-            "result",
-        ):
-            effects.record("staging_writes", f"staging:{kind}:{index}")
-    for ref in (
-        "staging:wave-plan",
-        "staging:wave-policy",
-        "staging:active-policy",
-        str(activation_result.receipt_ref),
-    ):
-        effects.record("staging_writes", ref)
-    for bundle in readbacks:
-        effects.record("staging_writes", f"staging:readback:{bundle.bundle_id}")
-    for result in slot_results:
-        for event in result.appended_events:
-            effects.record("synthetic_ledger_writes", str(event["event_ref"]))
-    effects.record("synthetic_receipt_writes", str(activation_result.receipt_ref))
-    for result in slot_results:
-        effects.record("synthetic_receipt_writes", str(result.result_id))
-
-
 def _run_positive(root: Path) -> _PositiveRun:
+    effects = WaveEffectJournal()
     storage = _install_storage(root / "wave-policy" / "storage")
-    candidates = tuple(_candidate(root / "candidates", index) for index in (1, 2, 3))
+    candidates = tuple(
+        _candidate(root / "candidates", index, journal=effects)
+        for index in (1, 2, 3)
+    )
     policy = _wave_policy(candidates)
     status = registry_root_status(storage=storage)
     plan = build_wave_plan(
@@ -1038,14 +1103,16 @@ def _run_positive(root: Path) -> _PositiveRun:
         _checkpoint(),
     )
     approvals = tuple(_approval(candidate, index) for index, candidate in enumerate(candidates, 1))
-    policy_context, activation_result = _activate_wave(
-        root, storage, plan, policy, approvals
+    policy_context, _activation_result = _activate_wave(
+        root, storage, plan, policy, approvals, effects
     )
 
     execution_root = root / "engine" / "execution"
-    context = _marker_context(root, "engine", execution_root)
+    context = _marker_context(root, "engine", execution_root, effects)
     execution_root.mkdir()
-    store_context = _marker_context(root, "engine", execution_root / "store")
+    store_context = _marker_context(
+        root, "engine", execution_root / "store", effects
+    )
     store = RegistrationWaveStore(store_context, store_context.target_root, plan.digest)
     ledger_root = execution_root / "ledger"
     prefix = verify_synthetic_wave_result_prefix(context, plan, store, ledger_root)
@@ -1053,6 +1120,8 @@ def _run_positive(root: Path) -> _PositiveRun:
     readbacks = []
     authorizations = []
     planned_slots = []
+    replay_result_digests = []
+    readback_repeat_digests = []
     for index in (1, 2, 3):
         request = _slot_request(plan, index, prefix)
         authorization = _execution_authorization(
@@ -1082,29 +1151,29 @@ def _run_positive(root: Path) -> _PositiveRun:
         planned_slots.append(planned)
         result = simulate_wave_slot(context, planned, store, time=_policy_time())
         results.append(result)
+        replayed = simulate_wave_slot(
+            context, planned, store, time=_policy_time()
+        )
+        replay_result_digests.append(replayed.digest)
         capability = store.get_verified_slot_result(f"slot:{index}")
         if capability is None:
             raise RALValidationError(
                 "verified_synthetic_result_required", "result was not durable"
             )
         prefix = verify_synthetic_wave_result_prefix(context, plan, store, ledger_root)
-        readbacks.append(
-            build_wave_readback_bundle(
-                context,
-                ledger_root,
-                result.post_head,
-                plan,
-                tuple(
-                    store.get_verified_slot_result(f"slot:{slot_index}")
-                    for slot_index in range(1, index + 1)
-                ),
-            )
+        capabilities = tuple(
+            store.get_verified_slot_result(f"slot:{slot_index}")
+            for slot_index in range(1, index + 1)
         )
+        readback = build_wave_readback_bundle(
+            context, ledger_root, result.post_head, plan, capabilities
+        )
+        repeated_readback = build_wave_readback_bundle(
+            context, ledger_root, result.post_head, plan, capabilities
+        )
+        readbacks.append(readback)
+        readback_repeat_digests.append(repeated_readback.digest)
 
-    effects = WaveEffectJournal()
-    _record_positive_effects(
-        effects, tuple(results), activation_result, tuple(readbacks)
-    )
     outcome = {
         "plan_digest": plan.digest,
         "policy_digest": policy.digest,
@@ -1135,6 +1204,8 @@ def _run_positive(root: Path) -> _PositiveRun:
         policy_context=policy_context,
         authorizations=tuple(authorizations),
         planned_slots=tuple(planned_slots),
+        replay_result_digests=tuple(replay_result_digests),
+        readback_repeat_digests=tuple(readback_repeat_digests),
     )
 
 
@@ -1154,6 +1225,7 @@ def _case(
     executed: bool = True,
     status: str = "PASS",
 ) -> RegistrationWaveAcceptanceCase:
+    canonical_evidence = _json_value(evidence)
     return RegistrationWaveAcceptanceCase(
         case_id=case_id,
         executed=executed,
@@ -1163,9 +1235,10 @@ def _case(
             {
                 "case_id": case_id,
                 "status": status,
-                "evidence": _json_value(evidence),
+                "evidence": canonical_evidence,
             }
         ),
+        control_evidence=canonical_evidence,
     )
 
 
@@ -1215,28 +1288,131 @@ def _prepare_custom(
     )
 
 
+def _verify_recovery_control(planned: object, inspection: object) -> object:
+    intent = {
+        "schema": "sedb-ral.registration-wave-slot-recovery-intent/0.1",
+        "principal_ref": _PRINCIPAL_REF,
+        "wave_plan_digest": planned.wave_plan.digest,
+        "slot_id": planned.slot_request.slot_id,
+        "slot_request_digest": planned.slot_request.digest,
+        "original_execution_authorization_digest": planned.execution_authorization.authorization.digest,
+        "application_approval_digest": planned.execution_authorization.approval.approval.digest,
+        "verified_prefix_digest": inspection.prefix_digest,
+        "pre_head": planned.slot_request.expected_ledger_state[
+            "expected_ledger_head"
+        ],
+        "post_head": inspection.current_head,
+        "checkpoint_digest": planned.wave_plan.checkpoint_digest,
+        "current_readback_digest": inspection.prefix_digest,
+    }
+    raw = _raw_principal(
+        intent, item_ref="user-item:recovery-control", turn_id="turn:recovery-control"
+    )
+    host = _principal_host(raw)
+    artifact = WaveSlotRecoveryAuthorization.sealed(
+        {
+            "schema": "sedb-ral.registration-wave-slot-recovery-authorization/0.1",
+            "recovery_authorization_id": "recovery-authorization:control",
+            "principal_ref": _PRINCIPAL_REF,
+            "wave_plan_ref": f"registration-wave-plan:{planned.wave_plan.wave_id}",
+            "wave_plan_digest": planned.wave_plan.digest,
+            "slot_id": planned.slot_request.slot_id,
+            "slot_request_ref": planned.slot_request.request_id,
+            "slot_request_digest": planned.slot_request.digest,
+            "original_execution_authorization_ref": planned.execution_authorization.authorization.execution_authorization_id,
+            "original_execution_authorization_digest": planned.execution_authorization.authorization.digest,
+            "application_approval_ref": planned.execution_authorization.approval.approval.approval_id,
+            "application_approval_digest": planned.execution_authorization.approval.approval.digest,
+            "verified_prefix_digest": inspection.prefix_digest,
+            "pre_head": planned.slot_request.expected_ledger_state[
+                "expected_ledger_head"
+            ],
+            "post_head": inspection.current_head,
+            "checkpoint_ref": planned.wave_plan.checkpoint_ref,
+            "checkpoint_digest": planned.wave_plan.checkpoint_digest,
+            "current_readback_digest": inspection.prefix_digest,
+            "valid_from_ref": "time:start",
+            "expires_at_ref": "time:end",
+            "status": "active",
+            "revoked_by_ref": None,
+            "source_user_item_ref": raw.source_item_ref,
+            "source_user_item_digest": raw.evidence_digest,
+            "host_observation_ref": host.observation_ref,
+            "host_observation_digest": host.digest,
+            "not_claimed": ["new_admission", "partial_prefix_acceptance"],
+        }
+    )
+    return verify_wave_slot_recovery_authorization(
+        artifact,
+        inspection,
+        planned,
+        raw,
+        host,
+        expected_principal_ref=_PRINCIPAL_REF,
+        time=_time(),
+    )
+
+
+def _slot_scenario(root: Path, first: _PositiveRun, name: str):
+    target = root / name / "execution"
+    context = _marker_context(root, name, target)
+    target.mkdir()
+    store_context = _marker_context(root, name, target / "store")
+    store = RegistrationWaveStore(
+        store_context, store_context.target_root, first.plan.digest
+    )
+    prefix = verify_synthetic_wave_result_prefix(
+        context, first.plan, store, target / "ledger"
+    )
+    request = _slot_request(first.plan, 1, prefix)
+    authorization = _execution_authorization(
+        first.plan, first.policy, request, first.approvals[0]
+    )
+    planned = plan_wave_slot(
+        context,
+        candidate=first.candidates[0],
+        wave_plan=first.plan,
+        slot_request=request,
+        execution_authorization=authorization,
+        result_prefix=prefix,
+        policy_context=first.policy_context,
+        policy_storage=first.storage,
+        policy_time=_policy_time(),
+        application_authority=derive_verified_application_authority(
+            first.candidates[0].application_digest,
+            authorization,
+            _policy_time(),
+        ),
+        ctcl_receipt=_ctcl(),
+        ledger_root=target / "ledger",
+        staging_parent=target / "staging",
+    )
+    return context, store, planned
+
+
 def _transaction_controls(root: Path, first: _PositiveRun) -> dict[str, object]:
-    source = first.planned_slots[0]
-
-    def scenario(name: str):
-        target = root / name / "execution"
-        context = _marker_context(root, name, target)
-        target.mkdir()
-        store_context = _marker_context(root, name, target / "store")
-        store = RegistrationWaveStore(
-            store_context, store_context.target_root, source.wave_plan.digest
-        )
-        planned = replace(
-            source,
-            ledger_root=target / "ledger",
-            staging_parent=target / "staging",
-        )
-        return context, store, planned
-
-    before_context, before_store, before_plan = scenario("before-append")
+    before_context, before_store, before_plan = _slot_scenario(
+        root, first, "before-append"
+    )
+    with patch.object(
+        wave_engine_module,
+        "_before_slot_append",
+        side_effect=InjectedWaveSlotCrash("injected before append"),
+    ):
+        before_fault = None
+        try:
+            simulate_wave_slot(
+                before_context, before_plan, before_store, time=_policy_time()
+            )
+        except InjectedWaveSlotCrash:
+            before_fault = "InjectedWaveSlotCrash"
+        else:
+            raise AssertionError("before-append fault did not execute")
     before = inspect_wave_slot_prefix(before_context, before_plan, before_store)
 
-    complete_context, complete_store, complete_plan = scenario("complete-prefix")
+    complete_context, complete_store, complete_plan = _slot_scenario(
+        root, first, "complete-prefix"
+    )
     commit_admission_plan(
         complete_plan.ledger_root,
         complete_plan.registrar_plan,
@@ -1250,7 +1426,9 @@ def _transaction_controls(root: Path, first: _PositiveRun) -> dict[str, object]:
         complete_context, complete_plan, complete_store
     )
 
-    partial_context, partial_store, partial_plan = scenario("partial-prefix")
+    partial_context, partial_store, partial_plan = _slot_scenario(
+        root, first, "partial-prefix"
+    )
     commit_admission_plan(
         partial_plan.ledger_root,
         partial_plan.registrar_plan,
@@ -1267,13 +1445,19 @@ def _transaction_controls(root: Path, first: _PositiveRun) -> dict[str, object]:
     for path in anchor_paths[2:]:
         path.unlink()
     partial = inspect_wave_slot_prefix(partial_context, partial_plan, partial_store)
+    partial_refused, partial_reason = _fails(
+        lambda: _verify_recovery_control(partial_plan, partial)
+    )
     return {
         "before": before.status,
         "before_count": before.event_count,
+        "before_fault": before_fault,
         "complete": complete.status,
         "complete_count": complete.event_count,
         "partial": partial.status,
         "partial_count": partial.event_count,
+        "partial_recovery_refused": partial_refused,
+        "partial_recovery_reason": partial_reason,
     }
 
 
@@ -1297,6 +1481,17 @@ def _case_outcomes(
     result_digests = [value.digest for value in first.slot_results]
     heads = [value.post_head for value in first.slot_results]
     transactions = _transaction_controls(root / "transactions", first)
+    empty_prefix = verify_wave_receipt_prefix(plan, ())
+    positive_slot_one_request = build_slot_request(
+        plan,
+        1,
+        empty_prefix,
+        {
+            "expected_ledger_head": None,
+            "cli_token": "GENESIS",
+            "ledger_event_count": 0,
+        },
+    )
 
     outcomes["W1-001"] = (
         len(set(candidate_digests)) == 3,
@@ -1339,9 +1534,25 @@ def _case_outcomes(
     changed = _candidate(
         root / "w1-008", 1, desired_display_label="Changed synthetic seat"
     )
+    old_approval_refused, old_approval_reason = _fails(
+        lambda: verify_application_approval(
+            first.approvals[0].approval,
+            changed.prepared.application,
+            first.approvals[0].raw_item,
+            first.approvals[0].host,
+            expected_principal_ref=_PRINCIPAL_REF,
+            time=_time(),
+        )
+    )
     outcomes["W1-008"] = (
-        changed.digest != first.candidates[0].digest,
-        [first.candidates[0].digest, changed.digest],
+        changed.digest != first.candidates[0].digest and old_approval_refused,
+        {
+            "mutation": "desired_display_label",
+            "old_candidate_digest": first.candidates[0].digest,
+            "new_candidate_digest": changed.digest,
+            "old_approval_reason": old_approval_reason,
+            "adjacent_positive": first.approvals[0].verification_digest,
+        },
     )
     outcomes["W1-009"] = (
         len(set(approval_digests)) == 3
@@ -1359,19 +1570,46 @@ def _case_outcomes(
         )
     )
     outcomes["W1-010"] = (failed, code)
-    failed, code = _fails(
+    missing_refused, missing_reason = _fails(
         lambda: require_wave_execution({"wave_status": "absent"})
     )
-    outcomes["W1-011"] = (failed, code)
+    unreceipted_refused, unreceipted_reason = _fails(
+        lambda: require_wave_execution({"wave_status": "active_unreceipted"})
+    )
+    outcomes["W1-011"] = (
+        missing_refused and unreceipted_refused,
+        {
+            "mutations": ["missing_policy", "unreceipted_policy"],
+            "negative_reasons": [missing_reason, unreceipted_reason],
+            "adjacent_positive": first.policy.digest,
+        },
+    )
     outcomes["W1-012"] = (
         first.slot_results[0].pre_head is None
         and len(first.slot_results[0].appended_events) == 4,
         first.slot_results[0].to_dict(),
     )
+    stale_h0_refused, stale_h0_reason = _fails(
+        lambda: build_slot_request(
+            plan,
+            2,
+            empty_prefix,
+            {
+                "expected_ledger_head": None,
+                "cli_token": "GENESIS",
+                "ledger_event_count": 0,
+            },
+        )
+    )
     outcomes["W1-013"] = (
-        first.slot_results[1].pre_head == first.slot_results[0].post_head
-        and first.slot_results[1].pre_head is not None,
-        [first.slot_results[1].pre_head, "H0-refused"],
+        stale_h0_refused
+        and positive_slot_one_request.slot_index == 1
+        and first.slot_results[1].pre_head == first.slot_results[0].post_head,
+        {
+            "mutation": "slot_2_reuses_H0",
+            "negative_reason": stale_h0_reason,
+            "adjacent_positive_request": positive_slot_one_request.digest,
+        },
     )
     outcomes["W1-014"] = (
         first.slot_results[1].pre_head == heads[0],
@@ -1383,23 +1621,47 @@ def _case_outcomes(
     )
     outcomes["W1-016"] = (
         len(set(result_digests)) == 3
-        and first.store.get_verified_slot_result("slot:1").result.digest
-        == result_digests[0],
-        result_digests,
+        and list(first.replay_result_digests) == result_digests
+        and first.event_count == 12,
+        {
+            "mutation": "repeat_each_admitted_slot",
+            "initial_results": result_digests,
+            "replayed_results": list(first.replay_result_digests),
+            "event_count_after_replay": first.event_count,
+        },
     )
     outcomes["W1-017"] = (
         transactions["before"] == "absent"
-        and transactions["before_count"] == 0,
+        and transactions["before_count"] == 0
+        and transactions["before_fault"] == "InjectedWaveSlotCrash",
         transactions,
     )
     outcomes["W1-018"] = (
-        first.store.get_verified_slot_result("slot:3").result.digest
-        == result_digests[2],
-        result_digests[2],
+        list(first.replay_result_digests) == result_digests,
+        {
+            "mutation": "exact_durable_result_retry",
+            "initial": result_digests,
+            "retry": list(first.replay_result_digests),
+        },
     )
+    private_journal = WaveEffectJournal()
+    private_context = _marker_context(
+        root / "w1-023",
+        "private-attempt",
+        root / "w1-023" / "private-attempt" / "target",
+        private_journal,
+    )
+    private_context.record_effect("private_reads", "injected:private-request")
     outcomes["W1-023"] = (
-        first.policy.capabilities["private_access"] is False,
-        first.policy.capabilities,
+        first.policy.capabilities["private_access"] is False
+        and private_journal.forbidden_nonzero_dimensions() == ("private_reads",),
+        {
+            "mutation": "private_read_request_after_public_admission",
+            "negative_observed": list(
+                private_journal.forbidden_nonzero_dimensions()
+            ),
+            "adjacent_positive": first.readbacks[-1].digest,
+        },
     )
     outcomes["W1-024"] = (
         first.event_count == 12
@@ -1418,17 +1680,39 @@ def _case_outcomes(
     )
     outcomes["W1-025"] = (
         first.readbacks[-1].ledger_head == first.final_head
-        and first.readbacks[-1].admitted_slot_indexes == [1, 2, 3],
-        first.readbacks[-1].digest,
+        and first.readbacks[-1].admitted_slot_indexes == [1, 2, 3]
+        and [value.digest for value in first.readbacks]
+        == list(first.readback_repeat_digests),
+        {
+            "mutation": "rebuild_each_exact_head_readback",
+            "first": [value.digest for value in first.readbacks],
+            "rebuilt": list(first.readback_repeat_digests),
+        },
     )
     outcomes["W1-026"] = (
         first.digest == second.digest,
         [first.digest, second.digest],
     )
+    slot_three_without_two_refused, slot_three_without_two_reason = _fails(
+        lambda: build_slot_request(
+            plan,
+            3,
+            empty_prefix,
+            {
+                "expected_ledger_head": heads[0],
+                "cli_token": heads[0],
+                "ledger_event_count": 4,
+            },
+        )
+    )
     outcomes["W1-027"] = (
-        [value.slot_index for value in first.slot_results] == [1, 2, 3]
-        and first.slot_results[2].pre_head != heads[0],
-        heads,
+        slot_three_without_two_refused
+        and [value.slot_index for value in first.slot_results] == [1, 2, 3],
+        {
+            "mutation": "slot_3_at_H1_without_slot_2_receipt",
+            "negative_reason": slot_three_without_two_reason,
+            "adjacent_positive": result_digests[2],
+        },
     )
     reversed_policy = _rebind_policy(
         first.policy,
@@ -1445,18 +1729,57 @@ def _case_outcomes(
         )
     )
     outcomes["W1-028"] = (failed, code)
-    outcomes["W1-029"] = (
-        all(
-            first.slot_results[index].pre_head
-            == first.slot_results[index - 1].post_head
-            for index in (1, 2)
-        ),
-        heads,
+    missing_predecessor_refused, missing_predecessor_reason = _fails(
+        lambda: build_slot_request(
+            plan,
+            2,
+            empty_prefix,
+            {
+                "expected_ledger_head": heads[0],
+                "cli_token": heads[0],
+                "ledger_event_count": 4,
+            },
+        )
     )
-    failed, code = _fails(
+    outcomes["W1-029"] = (
+        missing_predecessor_refused
+        and first.slot_results[1].pre_head == heads[0],
+        {
+            "mutation": "slot_2_missing_predecessor_receipt",
+            "negative_reason": missing_predecessor_reason,
+            "adjacent_positive": result_digests[1],
+        },
+    )
+    assistant_refused, assistant_reason = _fails(
         lambda: _approval_with_role(first.candidates[0], "assistant")
     )
-    outcomes["W1-030"] = (failed, code)
+    forged_refused, forged_reason = _fails(
+        lambda: verify_application_approval(
+            first.approvals[0].approval,
+            first.candidates[0].prepared.application,
+            first.approvals[0].raw_item,
+            first.approvals[0].host,
+            expected_principal_ref="principal:forged",
+            time=_time(),
+        )
+    )
+    relayed_refused, relayed_reason = _fails(
+        lambda: _approval_with_role(
+            first.candidates[0], "user", observed_origin="relay:controller"
+        )
+    )
+    outcomes["W1-030"] = (
+        assistant_refused and forged_refused and relayed_refused,
+        {
+            "mutations": ["assistant_role", "forged_principal", "relay_origin"],
+            "negative_reasons": [
+                assistant_reason,
+                forged_reason,
+                relayed_reason,
+            ],
+            "adjacent_positive": first.approvals[0].verification_digest,
+        },
+    )
     failed, code = _fails(
         lambda: verify_application_approval(
             first.approvals[0].approval,
@@ -1486,11 +1809,51 @@ def _case_outcomes(
         )
     )
     outcomes["W1-032"] = (failed, code)
-    outcomes["W1-033"] = outcomes["W1-010"]
-    failed, code = _fails(
-        lambda: require_wave_execution({"wave_status": "expired"})
+    self_approval_refused, self_approval_reason = _fails(
+        lambda: verify_application_approval(
+            first.approvals[0].approval,
+            first.candidates[0].prepared.application,
+            first.approvals[0].raw_item,
+            first.approvals[0].host,
+            expected_principal_ref="principal:registrar-self:independent-control",
+            time=_time(),
+        )
     )
-    outcomes["W1-034"] = (failed, code)
+    outcomes["W1-033"] = (
+        self_approval_refused,
+        {
+            "mutation": "registrar_self_approval_principal",
+            "negative_reason": self_approval_reason,
+            "adjacent_positive": first.approvals[0].verification_digest,
+        },
+    )
+    policy_status_controls = {}
+    for status_name in ("absent", "active_unreceipted", "expired", "stopped"):
+        refused, reason = _fails(
+            lambda selected=status_name: require_wave_execution(
+                {"wave_status": selected}
+            )
+        )
+        policy_status_controls[status_name] = {
+            "refused": refused,
+            "reason": reason,
+        }
+    active_status = registration_wave_status(
+        first.policy_context, first.storage, _policy_time()
+    )
+    active_positive = True
+    try:
+        require_wave_execution(active_status)
+    except RALValidationError:
+        active_positive = False
+    outcomes["W1-034"] = (
+        active_positive
+        and all(value["refused"] for value in policy_status_controls.values()),
+        {
+            "mutations": policy_status_controls,
+            "adjacent_positive_status": active_status["wave_status"],
+        },
+    )
     policy_paths = tuple(
         (
             first.storage.final
@@ -1501,18 +1864,35 @@ def _case_outcomes(
         first.storage.final
         / "evidence/registration-wave-policy-activation-00000000000000000001.json"
     )
-    outcomes["W1-035"] = (
-        len(policy_paths) == 1 and receipt_path.is_file(),
-        [
-            None
-            if len(policy_paths) != 1
-            else sha256_ref(
-                loads_strict(policy_paths[0].read_text(encoding="utf-8"))
-            ),
-            receipt_path.name,
-        ],
+    policy_value = (
+        loads_strict(policy_paths[0].read_text(encoding="utf-8"))
+        if len(policy_paths) == 1
+        else {}
     )
-    empty_prefix = verify_wave_receipt_prefix(plan, ())
+    same_policy_duplicate = (
+        False
+        if len(policy_paths) != 1
+        else _write_new_or_same(policy_paths[0], policy_value)
+    )
+    changed_policy_value = dict(policy_value)
+    changed_policy_value["not_claimed"] = ["changed-overwrite-attempt"]
+    overwrite_refused, overwrite_reason = _fails(
+        lambda: _write_new_or_same(policy_paths[0], changed_policy_value)
+    ) if len(policy_paths) == 1 else (False, "policy_missing")
+    outcomes["W1-035"] = (
+        len(policy_paths) == 1
+        and receipt_path.is_file()
+        and same_policy_duplicate is False
+        and overwrite_refused,
+        {
+            "mutation": "changed_existing_wave_policy_bytes",
+            "negative_reason": overwrite_reason,
+            "adjacent_positive_duplicate": same_policy_duplicate,
+            "policy_digest": None
+            if not policy_value
+            else sha256_ref(policy_value),
+        },
+    )
     failed, code = _fails(
         lambda: build_slot_request(
             plan,
@@ -1531,16 +1911,108 @@ def _case_outcomes(
         and transactions["complete_count"] == 4,
         transactions,
     )
-    failed, code = _fails(
-        lambda: first.store.put_recovery_result("slot:1", object())
+    outcomes["W1-038"] = (
+        transactions["partial_recovery_refused"] is True,
+        {
+            "mutation": "recovery_authority_against_partial_prefix",
+            "negative_reason": transactions["partial_recovery_reason"],
+            "adjacent_positive": transactions["complete"],
+        },
     )
-    outcomes["W1-038"] = (failed, code)
-    outcomes["W1-039"] = outcomes["W1-034"]
-    failed, code = _fails(
-        lambda: first.authorizations[0].verify_current(_time(now=400, expires_at=300))
+    expired_context, expired_store, expired_plan = _slot_scenario(
+        root / "w1-039", first, "expired-pending"
     )
-    outcomes["W1-040"] = (failed, code)
-    outcomes["W1-041"] = outcomes["W1-006"]
+    expired_refused, expired_reason = _fails(
+        lambda: simulate_wave_slot(
+            expired_context,
+            expired_plan,
+            expired_store,
+            time=_policy_time(now=400, expires_at=300),
+        )
+    )
+    expired_inspection = inspect_wave_slot_prefix(
+        expired_context, expired_plan, expired_store
+    )
+    outcomes["W1-039"] = (
+        expired_refused
+        and expired_inspection.status == "absent"
+        and expired_inspection.event_count == 0,
+        {
+            "mutation": "expired_policy_with_pending_slot",
+            "negative_reason": expired_reason,
+            "post_state": expired_inspection.status,
+            "adjacent_positive": result_digests[0],
+        },
+    )
+    continuation_context, continuation_store, continuation_plan_one = _slot_scenario(
+        root / "w1-040", first, "old-authority"
+    )
+    simulate_wave_slot(
+        continuation_context,
+        continuation_plan_one,
+        continuation_store,
+        time=_policy_time(),
+    )
+    continuation_prefix = verify_synthetic_wave_result_prefix(
+        continuation_context,
+        first.plan,
+        continuation_store,
+        continuation_plan_one.ledger_root,
+    )
+    continuation_request = _slot_request(first.plan, 2, continuation_prefix)
+    old_authority_refused, old_authority_reason = _fails(
+        lambda: plan_wave_slot(
+            continuation_context,
+            candidate=first.candidates[1],
+            wave_plan=first.plan,
+            slot_request=continuation_request,
+            execution_authorization=continuation_plan_one.execution_authorization,
+            result_prefix=continuation_prefix,
+            policy_context=first.policy_context,
+            policy_storage=first.storage,
+            policy_time=_policy_time(),
+            application_authority=continuation_plan_one.application_authority,
+            ctcl_receipt=_ctcl(),
+            ledger_root=continuation_plan_one.ledger_root,
+            staging_parent=continuation_context.target_root / "stale-authority",
+        )
+    )
+    outcomes["W1-040"] = (
+        old_authority_refused and continuation_prefix.ledger_event_count == 4,
+        {
+            "mutation": "slot_2_reuses_slot_1_execution_authority",
+            "negative_reason": old_authority_reason,
+            "adjacent_positive": result_digests[1],
+        },
+    )
+    braced_claim = _claim(1)
+    braced_claim["desired_addresses"][0]["locator"] = "{" + _THREADS[0] + "}"
+    braced_refused, braced_reason = _fails(
+        lambda: _prepare_custom(
+            root / "w1-041-braced", claim_value=braced_claim
+        )
+    )
+    unicode_claim = _claim(1)
+    unicode_claim["desired_addresses"][0]["locator"] = _THREADS[0].replace(
+        "-", "‐"
+    )
+    unicode_refused, unicode_reason = _fails(
+        lambda: _prepare_custom(
+            root / "w1-041-unicode", claim_value=unicode_claim
+        )
+    )
+    outcomes["W1-041"] = (
+        outcomes["W1-006"][0] and braced_refused and unicode_refused,
+        {
+            "mutations": ["uppercase", "braced", "unicode_hyphen"],
+            "negative_reasons": [
+                outcomes["W1-006"][1],
+                braced_reason,
+                unicode_reason,
+            ],
+            "adjacent_positive": first.candidates[0].verification_digest,
+        },
+    )
     duplicate_claim = _claim(3)
     duplicate_claim["desired_addresses"][0]["locator"] = _THREADS[0]
     duplicate_candidate = _prepare_custom(
@@ -1590,7 +2062,30 @@ def _case_outcomes(
         lambda: _candidate(root / "w1-045", 1, continuity_claim="continue")
     )
     outcomes["W1-045"] = (failed, code)
-    outcomes["W1-046"] = outcomes["W1-002"]
+    failed_candidate_refused, failed_candidate_reason = _fails(
+        lambda: _candidate(root / "w1-046-failed", 3, opt_in=False)
+    )
+    two_candidate_policy_refused, two_candidate_reason = _fails(
+        lambda: build_wave_plan(
+            first.candidates[:2],
+            first.policy,
+            _empty_registry_view(plan),
+            _checkpoint(),
+        )
+    )
+    outcomes["W1-046"] = (
+        failed_candidate_refused
+        and two_candidate_policy_refused
+        and not (root / "w1-046-failed" / "candidate-3" / "target").exists(),
+        {
+            "mutation": "third_candidate_opt_out_before_policy_activation",
+            "negative_reasons": [
+                failed_candidate_reason,
+                two_candidate_reason,
+            ],
+            "adjacent_positive": first.plan.digest,
+        },
+    )
     outcomes["W1-049"] = (
         transactions["partial"] == "registrar_partial_transaction"
         and transactions["partial_count"] == 2,
@@ -1651,7 +2146,7 @@ def _empty_registry_view(plan: object) -> dict[str, object]:
     }
 
 
-def _effect_injection_controls() -> dict[str, bool]:
+def _effect_injection_controls(root: Path) -> dict[str, bool]:
     dimensions = (
         "production_reads",
         "production_writes",
@@ -1666,7 +2161,13 @@ def _effect_injection_controls() -> dict[str, bool]:
     result: dict[str, bool] = {}
     for dimension in dimensions:
         journal = WaveEffectJournal()
-        journal.record(dimension, f"injected:{dimension}")
+        context = _marker_context(
+            root,
+            f"effect-{dimension}",
+            root / f"effect-{dimension}" / "target",
+            journal,
+        )
+        context.record_effect(dimension, f"injected:{dimension}")
         result[dimension] = journal.forbidden_nonzero_dimensions() == (dimension,)
     return result
 
@@ -1676,8 +2177,14 @@ def validate_registration_wave(root: Path) -> RegistrationWaveAcceptanceReport:
     selected_root.mkdir(parents=True, exist_ok=True)
     first = _run_positive(selected_root / "run-a")
     second = _run_positive(selected_root / "run-b")
+    return _build_acceptance_report(selected_root, first, second)
+
+
+def _build_acceptance_report(
+    selected_root: Path, first: _PositiveRun, second: _PositiveRun
+) -> RegistrationWaveAcceptanceReport:
     outcomes = _case_outcomes(selected_root / "cases", first, second)
-    controls = _effect_injection_controls()
+    controls = _effect_injection_controls(selected_root / "effect-controls")
     passed, evidence = outcomes["W1-024"]
     outcomes["W1-024"] = (
         passed and all(controls.values()),
@@ -1705,7 +2212,17 @@ def validate_registration_wave(root: Path) -> RegistrationWaveAcceptanceReport:
         passed, evidence = outcomes.get(
             case_id, (False, "acceptance_case_not_executed")
         )
-        cases.append(_case(case_id, passed, evidence))
+        cases.append(
+            _case(
+                case_id,
+                passed,
+                {
+                    "population": CASE_POPULATIONS[case_id],
+                    "negative_and_adjacent_positive": evidence,
+                    "adjacent_positive_run_digest": first.digest,
+                },
+            )
+        )
 
     material = {
         "case_digests": [case.evidence_digest for case in cases],

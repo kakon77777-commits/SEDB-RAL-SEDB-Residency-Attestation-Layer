@@ -682,7 +682,7 @@ def activate_wave_policy(
     ):
         context.verify_before_io("policy_write", path)
         if _write_new_or_same(path, value):
-            context.journal.record("staging_writes", ref)
+            context.record_effect("staging_writes", ref)
     _after_active_record_published()
     receipt = WavePolicyActivationReceipt.sealed(
         {
@@ -716,8 +716,8 @@ def activate_wave_policy(
     )
     context.verify_before_io("policy_receipt_write", receipt_path)
     if _write_new_or_same(receipt_path, receipt.to_dict()):
-        context.journal.record("staging_writes", _receipt_ref(1))
-        context.journal.record("synthetic_receipt_writes", _receipt_ref(1))
+        context.record_effect("staging_writes", _receipt_ref(1))
+        context.record_effect("synthetic_receipt_writes", _receipt_ref(1))
     verified_status = registry_root_status(storage=storage)
     if (
         verified_status.get("wave_status") != "active"
@@ -1092,7 +1092,7 @@ def terminate_wave_policy(
     ):
         context.verify_before_io("policy_terminal_write", path)
         if _write_new_or_same(path, value):
-            context.journal.record("staging_writes", ref)
+            context.record_effect("staging_writes", ref)
     verified = registry_root_status(storage=storage)
     if verified.get("wave_status") != terminal.terminal_status:
         raise RALValidationError(
