@@ -39,11 +39,11 @@ def built_wheel(tmp_path_factory):
     return wheels[0]
 
 
-def test_candidate_version_is_0_5_0b1():
+def test_current_candidate_version_is_0_5_0c1():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"] == "0.5.0b1"
+    assert project["project"]["version"] == "0.5.0c1"
     assert "wheel" in project["project"]["optional-dependencies"]["test"]
-    assert __version__ == "0.5.0b1"
+    assert __version__ == "0.5.0c1"
 
 
 def test_built_wheel_contains_production_contracts(built_wheel):
@@ -52,7 +52,7 @@ def test_built_wheel_contains_production_contracts(built_wheel):
     assert "sedb_ral/schemas/production-operations-extension-plan.schema.json" in names
     assert "sedb_ral/schemas/production-operations-policy.schema.json" in names
     assert "sedb_ral/schemas/registry-extension-index.schema.json" in names
-    assert built_wheel.name == "sedb_ral-0.5.0b1-py3-none-any.whl"
+    assert built_wheel.name == "sedb_ral-0.5.0rc1-py3-none-any.whl"
 
 
 def test_historical_r3b_a_acceptance_keeps_0_5_0a1():
