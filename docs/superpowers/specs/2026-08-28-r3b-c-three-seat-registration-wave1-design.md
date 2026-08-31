@@ -556,6 +556,28 @@ unexpired and unrevoked; it never substitutes for the fresh execution gate.
 
 ## 12. LIMEN B6A public readback
 
+### 12.1 Verified synthetic result input (Design Delta 001)
+
+The Task 10 RAL producer accepts only verifier-issued
+`VerifiedSyntheticWaveSlotResult` capabilities. A plain self-sealed
+`SyntheticWaveSlotExecutionResult`, mapping, production receipt, recovery
+result, transport artifact, memory artifact or private capability is never
+readback evidence.
+
+For each supplied slot capability, the producer re-verifies the complete
+capability, requires its retained ledger prefix to equal the actual verified
+ledger bytes through that slot, and rebuilds the application, resident,
+instance, address and binding projection digests from the actual events. For an
+N-slot bundle, capability i binds the actual prefix through slot i; only the
+final capability binds `expected_head` and the complete current prefix.
+
+The public bundle wire schema remains
+`sedb-ral.registration-wave-readback-bundle/0.1`. This input narrowing adds no
+LIMEN, Fabric, MNEME, SOACR or private schema dependency. Restart and CLI
+consumers load capabilities through
+`RegistrationWaveStore.get_verified_slot_result()` rather than reconstructing
+plain result JSON.
+
 After every append, LIMEN B6A receives a freshly rebuilt public RAL view and a
 new `limen.registration-readback-observation/0.1` captured from a fresh current
 task/turn. Claim-time host observation and applicant item evidence remain

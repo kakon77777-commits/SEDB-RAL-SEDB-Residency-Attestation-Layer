@@ -849,16 +849,20 @@ git commit -m "feat: recover synthetic Wave 1 results without blind replay"
 
 **Interfaces:**
 - Produces:
-  `build_wave_readback_bundle(context, ledger_root, expected_head, plan, slot_results: tuple[SyntheticWaveSlotExecutionResult, ...]) -> WaveReadbackBundle`.
+  `build_wave_readback_bundle(context, ledger_root, expected_head, plan, slot_results: tuple[VerifiedSyntheticWaveSlotResult, ...]) -> WaveReadbackBundle`.
 
 - [ ] **Step 1: Write RAL-bundle and non-promotion REDs**
 
 ```python
 def test_bundle_reports_synthetic_ral_state_without_claiming_live_b6a():
-    result = build_wave_readback_bundle(context(), ledger(), h1(), plan(), slot_results(1))
+    result = build_wave_readback_bundle(context(), ledger(), h1(), plan(), verified_slot_results(1))
     assert result.admitted_slot_indexes == (1,)
     assert result.production_wave_run == "NOT_RUN"
     assert result.live_limen_b6a == "NOT_RUN"
+
+def test_plain_self_sealed_result_is_not_readback_evidence():
+    with pytest.raises(RALValidationError, match="verified_synthetic_result_required"):
+        build_wave_readback_bundle(context(), ledger(), h1(), plan(), (plain_slot_result(),))
 
 def test_ral_bundle_api_and_schema_have_no_limen_observation_input():
     assert tuple(inspect.signature(build_wave_readback_bundle).parameters) == (
@@ -878,12 +882,23 @@ Expected: missing module.
 
 - [ ] **Step 3: Implement sanitized digest-bound bundle**
 
-Bind exact synthetic RAL view schema/raw/public digests, ledger/authority/
-binding heads, source events and per-slot application/resident/address/binding
-projection digests. Set `production_wave_run=NOT_RUN` and
+Require verifier-issued `VerifiedSyntheticWaveSlotResult` values, call each
+capability verifier, compare capability i to the actual ledger prefix through
+slot i, and require only the final capability to bind `expected_head` and the
+complete current prefix. Rebuild exact synthetic RAL view schema/raw/public
+digests, ledger/authority/binding heads, source events and per-slot
+application/resident/instance/address/binding projection digests from the
+actual verified ledger; never copy plain caller fields. Set
+`production_wave_run=NOT_RUN` and
 `live_limen_b6a=NOT_RUN`. Do not accept a LIMEN observation or claim resolution/
 enforcement success in this repo; the later LIMEN-owner plan supplies those
 objects and tests W1-019/W1-020/W1-021/W1-022/W1-047/W1-048.
+
+Restart and CLI paths obtain capabilities through
+`RegistrationWaveStore.get_verified_slot_result()`. They never parse a plain
+result mapping and promote it into Task 10. Projection digest, result ID, event
+pair, plan, prefix or actual-ledger substitutions must turn red. The bundle
+wire schema and Task 12 physical effect counts remain unchanged.
 
 - [ ] **Step 4: Run RAL/LIMEN exporter regressions**
 
@@ -946,6 +961,11 @@ and verify `SyntheticWaveExecutionContext` in every mutating handler; direct
 library calls retain the same guard. The code candidate hard-refuses exact production
 execution unless a later operational plan replaces the candidate guard under
 Neo.K authority.
+
+`export-readback` loads verifier-issued slot capabilities through
+`RegistrationWaveStore.get_verified_slot_result()` and passes only those
+capabilities to Task 10. No CLI command accepts a plain self-sealed slot result
+as readback evidence.
 
 - [ ] **Step 4: Run CLI/package regressions**
 
@@ -1021,6 +1041,12 @@ authority, RAL readback bundle and private/no-network controls. Use a scoped
 `WaveEffectJournal` and injected capability adapters to attempt production/
 private reads and writes, network, provider, Fabric, MCP and external CLI calls;
 every injected attempt must increment a dimension and turn the gate red.
+
+Readback positives use exact store-rebuilt
+`VerifiedSyntheticWaveSlotResult` capabilities. Mutations to projection
+digests, deterministic result IDs, appended event pairs, plan/prefix bindings or
+actual ledger bytes must turn the Task 10 consumer red even when a plain wire
+object is canonically re-sealed.
 
 The independent expected-positive-effects fixture contains exact synthetic
 refs/counts:
